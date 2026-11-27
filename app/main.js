@@ -6,6 +6,8 @@
 //   #/transactions   Every transaction, add + filter + delete
 //   #/budget         Monthly budgets, editable
 //   #/goals          Savings goals, contribute
+//   #/savings-goals  Savings goals planner — deadlines + monthly need
+//   #/debts          Debt payoff planner — snowball vs avalanche
 //   #/calculators    50/30/20 split, goal planner, affordability
 //   #/reports        Six-month report
 //
@@ -20,6 +22,10 @@ import {
   bindBudget,
   renderGoals,
   bindGoals,
+  renderSavingsGoals,
+  bindSavingsGoals,
+  renderDebts,
+  bindDebts,
   renderCalculators,
   bindCalculators,
   renderReports,
@@ -30,6 +36,8 @@ const ROUTES = {
   "/transactions": { title: "Transactions", render: renderTransactions, bind: bindTransactions },
   "/budget": { title: "Budget", render: renderBudget, bind: bindBudget },
   "/goals": { title: "Goals", render: renderGoals, bind: bindGoals },
+  "/savings-goals": { title: "Savings Goals", render: renderSavingsGoals, bind: bindSavingsGoals },
+  "/debts": { title: "Debt Payoff", render: renderDebts, bind: bindDebts },
   "/calculators": { title: "Calculators", render: renderCalculators, bind: bindCalculators },
   "/reports": { title: "Reports", render: renderReports, bind: null },
 };

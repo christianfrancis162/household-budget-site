@@ -223,6 +223,47 @@ h2 { font-size: 19px; margin: 0 0 12px; }
   color: var(--muted); font-size: 13px;
 }
 
+/* Savings goals planner */
+.planner-card.done { border-color: #86efac; background: #f0fdf4; }
+.planner-head {
+  display: flex; justify-content: space-between; gap: 10px;
+  align-items: baseline;
+}
+.planner-head h2 { margin-bottom: 0; }
+.status-badge {
+  flex-shrink: 0; font-size: 12px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.4px; padding: 4px 10px; border-radius: 999px;
+  background: #e7e0d2; color: var(--ink); white-space: nowrap;
+}
+.status-on-track { background: #dcfce7; color: var(--green-dark); }
+.status-tight { background: #ffedd5; color: #92400e; }
+.status-past-due { background: #fee2e2; color: var(--red); }
+.status-complete { background: #dcfce7; color: var(--green-dark); }
+.status-debt { background: #e0e7ff; color: #3730a3; }
+.planner-facts {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px;
+  margin: 12px 0 4px; font-size: 14px;
+}
+.planner-facts div { display: flex; justify-content: space-between; gap: 8px; }
+.planner-facts dt { color: var(--muted); }
+.planner-facts dd { margin: 0; font-weight: 600; text-align: right; }
+.planner-card .calc-result { font-size: 14px; padding: 10px 12px; margin-top: 12px; }
+
+/* Debt payoff planner */
+.strategy-picker { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px; }
+.strategy-btn {
+  background: var(--card); border: 2px solid var(--line); border-radius: var(--radius);
+  padding: 12px 14px; font-size: 15px; cursor: pointer; text-align: left; color: var(--ink);
+}
+.strategy-btn strong { display: block; font-size: 17px; }
+.strategy-btn span { font-size: 13px; color: var(--muted); }
+.strategy-btn:hover { border-color: var(--green); }
+.strategy-btn.active { border-color: var(--green); background: #f0fdf4; }
+.payoff-table td:first-child { font-weight: 800; color: var(--green-dark); }
+.assumption { margin-top: 12px; }
+.debt-card h2 { margin-bottom: 2px; }
+.debt-card .panel-link { display: flex; gap: 8px; margin-top: 12px; }
+
 /* Phone layout */
 @media (max-width: 760px) {
   .money-grid { grid-template-columns: repeat(2, 1fr); }

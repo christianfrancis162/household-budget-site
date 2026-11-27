@@ -89,6 +89,27 @@ export const GOALS = [
   { id: "december", name: "Detty December", target: 150000, saved: 112500, note: "Christmas + travel home" },
 ];
 
+// The goals planner's list: the same household goals that have a hard
+// deadline attached. The planner works out the monthly amount each one
+// needs, so the household can see which deadlines are realistic and which
+// need more money or more time. Deadlines are ISO dates; "today" for the
+// planner is 26 November 2026.
+export const SAVINGS_GOALS = [
+  { id: "sg1", name: "New generator", target: 850000, saved: 320000, deadline: "2027-03-15", note: "5.5kVA — the old one died in October" },
+  { id: "sg2", name: "Children's school fees", target: 600000, saved: 150000, deadline: "2027-01-10", note: "Term 2 fees for Zara and Tobi" },
+  { id: "sg3", name: "Emergency fund", target: 1000000, saved: 640000, deadline: "2027-06-30", note: "Three months of essentials, kept separate" },
+];
+
+// What the household owes: balance, APR and minimum monthly payment per
+// debt. The payoff planner runs the snowball and avalanche strategies over
+// this list. The phone is a 0% instalment — it costs nothing to carry, so
+// the avalanche leaves it until last.
+export const DEBTS = [
+  { id: "d1", name: "Cooperative loan", balance: 250000, apr: 18, minPayment: 25000, note: "Staff cooperative, Chidi" },
+  { id: "d2", name: "Credit card", balance: 120000, apr: 24, minPayment: 10000, note: "GTBank card — cleared monthly, mostly" },
+  { id: "d3", name: "Phone on instalment", balance: 85000, apr: 0, minPayment: 15000, note: "Adaeze's phone, Slot — 0% instalment" },
+];
+
 export const UPCOMING_BILLS = [
   { day: "1 Dec", desc: "Rent — December", amount: 250000, cat: "housing" },
   { day: "5 Dec", desc: "DSTv Compact", amount: 21000, cat: "utilities" },

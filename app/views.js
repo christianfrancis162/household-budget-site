@@ -21,9 +21,42 @@ import {
   setBudget,
   setSavingsTarget,
   contributeToGoal,
+  addPlannerGoal,
+  contributeToPlannerGoal,
+  removePlannerGoal,
+  addDebt,
+  markDebtPaid,
+  removeDebt,
 } from "./store.js";
 import { naira, signedNaira, shortNaira, pct, dayLabel } from "./format.js";
 import { barsChart, donutChart, CATEGORY_COLORS } from "./charts.js";
+import {
+  PLANNER_TODAY,
+  formatDeadline,
+  monthsLeft,
+  monthlyNeeded,
+  goalStatus,
+  goalStatusText,
+  goalProgressPct,
+  goalRemaining,
+  projectedFinish,
+  sortPlannerGoals,
+  plannerSummary,
+  validatePlannerGoal,
+  makePlannerGoal,
+} from "./goals.js";
+import {
+  STRATEGIES,
+  totalBalance,
+  totalMinimums,
+  simulatePayoff,
+  simulateMinimumOnly,
+  compareStrategies,
+  payoffTimelineRows,
+  validateDebt,
+  makeDebt,
+  strategyFirstStep,
+} from "./debts.js";
 
 function catLabel(id) {
   if (id === "income") return "Income";
@@ -38,6 +71,8 @@ function catLabel(id) {
 // "Added" message was written and then immediately erased by rerender).
 let txFlash = "";
 let goalFlash = "";
+let plannerFlash = "";
+let debtFlash = "";
 
 function moneyCard(label, value, sub, tone) {
   return `<div class="card money ${tone || ""}">
@@ -583,4 +618,325 @@ export function renderReports() {
       <p class="note">${overList.length ? overList.map((o) => o.label + " is over budget by " + naira(o.over)).join("; ") + "." : "Every category is inside its budget this month."}</p>
     </section>
   </div>`;
+}
+
+// ---------------- Savings goals planner ----------------
+
+// The planner page: the same household goals as the Goals page, but each
+// one carries a deadline — and the page works out the monthly amount each
+// goal needs, whether the deadline is realistic, and when the goal
+// finishes at the household's current savings pace.
+export function renderSavingsGoals() {
+  const summary = plannerSummary(state.savingsGoals);
+  const capacity = state.savingsTarget;
+  const ordered = sortPlannerGoals(state.savingsGoals);
+  const msg = plannerFlash;
+  plannerFlash = "";
+  return `
+  <h1>Savings goals planner</h1>
+  <p class="lede"><strong>${naira(summary.totalSaved)}</strong> saved toward <strong>${naira(summary.totalTarget)}</strong>
+  across ${state.savingsGoals.length} goals with deadlines. ${summary.completeCount} finished, ${summary.activeCount} still going —
+  together they need <strong>${naira(summary.monthlyNeededTotal)} every month</strong> to hit every deadline on time.</p>
+  ${msg ? `<p class="calc-result" role="status">${msg}</p>` : ""}
+
+  <section class="money-grid three" aria-label="Planner summary">
+    ${moneyCard("Saved so far", naira(summary.totalSaved), summary.overallPct + "% of all targets", "save")}
+    ${moneyCard("Still to save", naira(summary.totalLeft), summary.activeCount + " goals unfinished", "out")}
+    ${moneyCard("Needed each month", naira(summary.monthlyNeededTotal), "Savings transfer is " + naira(capacity) + "/month", summary.monthlyNeededTotal > capacity ? "out" : "in")}
+  </section>
+
+  <section class="panel">
+    <h2>Add a goal with a deadline</h2>
+    <form id="add-planner-goal" class="form-grid">
+      <label class="wide">Goal name
+        <input type="text" name="name" placeholder="e.g. New freezer" maxlength="60" required>
+      </label>
+      <label>Target (₦)
+        <input type="number" name="target" min="1000" step="5000" placeholder="250000" required>
+      </label>
+      <label>Deadline
+        <input type="date" name="deadline" required>
+      </label>
+      <label class="wide">Note (optional)
+        <input type="text" name="note" placeholder="e.g. Before the December heat" maxlength="80">
+      </label>
+      <div class="form-actions"><button type="submit" class="btn">Add goal</button></div>
+    </form>
+    <p class="note" id="planner-form-msg" role="status"></p>
+  </section>
+
+  <div class="goal-grid">
+    ${ordered.map((g) => {
+      const p = goalProgressPct(g);
+      const status = goalStatus(g, capacity);
+      const months = monthsLeft(g);
+      const needed = monthlyNeeded(g);
+      const finish = projectedFinish(g, capacity);
+      const left = goalRemaining(g);
+      return `<section class="panel planner-card ${status === "complete" ? "done" : ""}">
+        <div class="planner-head">
+          <h2>${g.name}</h2>
+          <span class="status-badge status-${status.replace(" ", "-")}">${status}</span>
+        </div>
+        ${g.note ? `<p class="note">${g.note}</p>` : ""}
+        <div class="goal-figures"><strong>${naira(g.saved)}</strong> of ${naira(g.target)}</div>
+        <div class="bar-track"><div class="bar-fill" style="width:${p}%;background:${status === "complete" ? "#166534" : status === "past due" ? "#b91c1c" : "#0369a1"}"></div></div>
+        <p class="bar-foot"><span>${p}% there</span><span>${left ? naira(left) + " to go" : "Fully funded"}</span></p>
+        <dl class="planner-facts">
+          <div><dt>Deadline</dt><dd>${formatDeadline(g.deadline)}</dd></div>
+          <div><dt>Months left</dt><dd>${status === "complete" ? "—" : months === 0 ? "Due now" : months + " month" + (months > 1 ? "s" : "")}</dd></div>
+          <div><dt>Needed / month</dt><dd><strong>${needed ? naira(needed) : "—"}</strong></dd></div>
+          <div><dt>At ${naira(capacity)}/month</dt><dd>${status === "complete" ? "Done" : "finishes " + finish.label}</dd></div>
+        </dl>
+        <p class="note">${goalStatusText(g, capacity)}</p>
+        ${status === "complete"
+          ? `<p class="calc-result">Goal reached — well done. Delete it below to clear the card, or leave it up as a reminder of what the household can do.</p>`
+          : `<form class="goal-form" data-planner-goal="${g.id}">
+            <label>Add money (₦)
+              <input type="number" name="amount" min="100" step="500" placeholder="10000" required>
+            </label>
+            <button type="submit" class="btn">Add</button>
+          </form>`}
+        <p class="panel-link"><button class="btn-small" type="button" data-del-planner-goal="${g.id}">Delete goal</button></p>
+      </section>`;
+    }).join("")}
+  </div>
+  <p class="note">Monthly need = what is left ÷ months until the deadline. A goal whose need is bigger than the
+  ${naira(capacity)} monthly savings transfer is marked "tight" — either the deadline moves out or the household finds
+  extra money. The simple goal list without deadlines is on the <a href="#/goals">Goals page →</a></p>`;
+}
+
+export function bindSavingsGoals(rerender) {
+  const form = document.getElementById("add-planner-goal");
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const input = {
+      name: fd.get("name"),
+      target: fd.get("target"),
+      deadline: fd.get("deadline"),
+      note: fd.get("note"),
+    };
+    const problems = validatePlannerGoal(input);
+    if (problems.length) {
+      document.getElementById("planner-form-msg").textContent = problems.join(" ");
+      return;
+    }
+    const goal = makePlannerGoal(input, state.nextGoalId);
+    addPlannerGoal(goal);
+    plannerFlash =
+      "Added goal: " + goal.name + " — " + naira(goal.target) + " by " + formatDeadline(goal.deadline) +
+      ". It needs " + naira(monthlyNeeded(goal)) + " every month to finish on time.";
+    rerender();
+  });
+
+  document.querySelectorAll("[data-planner-goal]").forEach((f) =>
+    f.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const amount = Number(new FormData(f).get("amount"));
+      const goal = contributeToPlannerGoal(f.dataset.plannerGoal, amount);
+      if (!goal) return;
+      plannerFlash =
+        "Added " + naira(amount) + " to " + goal.name + " — now " + naira(goal.saved) +
+        " of " + naira(goal.target) + " (" + goalProgressPct(goal) + "% there)" +
+        (goal.saved >= goal.target ? ". Goal complete!" : ". " + naira(goalRemaining(goal)) + " to go.");
+      rerender();
+    }),
+  );
+
+  document.querySelectorAll("[data-del-planner-goal]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const goal = state.savingsGoals.find((g) => g.id === btn.dataset.delPlannerGoal);
+      if (!goal) return;
+      if (!window.confirm("Delete the goal \"" + goal.name + "\"? Its saved " + naira(goal.saved) + " is not moved anywhere.")) return;
+      removePlannerGoal(goal.id);
+      plannerFlash = "Deleted goal: " + goal.name + ".";
+      rerender();
+    }),
+  );
+}
+
+// ---------------- Debt payoff planner ----------------
+
+// The payoff page's own UI state: the chosen strategy and the extra
+// monthly amount. These live in the view, not the store — they are how the
+// household looks at the debts, not the debts themselves.
+let debtStrategy = "snowball";
+let debtExtra = 50000;
+
+export function renderDebts() {
+  const debts = state.debts;
+  const owed = totalBalance(debts);
+  const minimums = totalMinimums(debts);
+  const sim = simulatePayoff(debts, debtStrategy, debtExtra);
+  const baseline = simulateMinimumOnly(debts, debtStrategy);
+  const compared = compareStrategies(debts, debtExtra);
+  const rows = payoffTimelineRows(sim);
+  const msg = debtFlash;
+  debtFlash = "";
+  const interestSaved = baseline.totalInterest - sim.totalInterest;
+  return `
+  <h1>Debt payoff planner</h1>
+  <p class="lede">The household owes <strong>${naira(owed)}</strong> across ${debts.length} debts, with
+  <strong>${naira(minimums)} a month</strong> in minimum payments. Pick a strategy and an extra monthly amount —
+  the plan shows the payoff order, the month each debt clears, and the interest it costs.</p>
+  ${msg ? `<p class="calc-result" role="status">${msg}</p>` : ""}
+
+  <section class="money-grid three" aria-label="Debt summary">
+    ${moneyCard("Total owed", naira(owed), debts.length + " debts", "out")}
+    ${moneyCard("Minimums / month", naira(minimums), "Before any extra money", "left")}
+    ${moneyCard("Debt-free", sim.debtFreeLabel, sim.months === Infinity ? "Payments do not cover the interest" : sim.months + " month" + (sim.months > 1 ? "s" : "") + " from now", "save")}
+  </section>
+
+  <section class="panel">
+    <h2>Your plan</h2>
+    <div class="strategy-picker" role="group" aria-label="Payoff strategy">
+      ${STRATEGIES.map((s) => `<button type="button" class="strategy-btn ${debtStrategy === s.id ? "active" : ""}" data-strategy="${s.id}">
+        <strong>${s.name}</strong><span>${s.tagline}</span>
+      </button>`).join("")}
+    </div>
+    <p class="note">${STRATEGIES.find((s) => s.id === debtStrategy).why}</p>
+    <p class="note"><strong>${strategyFirstStep(debts, debtStrategy)}</strong></p>
+    <div class="form-grid">
+      <label>Extra payment each month (₦)
+        <input type="number" id="debt-extra" min="0" step="5000" value="${debtExtra}">
+      </label>
+      <p class="note">On top of the ${naira(minimums)} minimums. The extra goes to the first debt in the
+      ${debtStrategy === "snowball" ? "snowball" : "avalanche"} order, and when a debt clears, its minimum rolls into the next one.</p>
+    </div>
+    <p class="calc-result">With ${naira(debtExtra)} extra a month: debt-free by <strong>${sim.debtFreeLabel}</strong>,
+    total interest <strong>${naira(sim.totalInterest)}</strong>. Minimum payments alone would cost
+    <strong>${naira(baseline.totalInterest)}</strong> in interest and take ${baseline.months} months —
+    the extra saves <strong>${naira(interestSaved)}</strong>.</p>
+    <p class="note">Avalanche vs snowball on the same extra: ${compared.monthsSaved > 0 ? "avalanche finishes " + compared.monthsSaved + " month" + (compared.monthsSaved === 1 ? "" : "s") + " sooner and saves " + naira(compared.interestSaved) + " in interest." : "both finish in " + compared.avalanche.months + " months, but avalanche still saves " + naira(compared.interestSaved) + " in interest."} Snowball's first win comes sooner — the smallest debt clears first — which is why some households stick with it anyway.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Payoff timeline — ${debtStrategy === "snowball" ? "Snowball" : "Avalanche"} order</h2>
+    <table class="tx-table payoff-table">
+      <thead><tr><th>#</th><th>Debt</th><th>Clears</th><th class="num">Interest paid</th></tr></thead>
+      <tbody>
+        ${rows.map((r) => `<tr>
+          <td>${r.step}</td><td>${r.name}${r.last ? " — then debt-free" : ""}</td>
+          <td>${r.payoffLabel} (month ${r.payoffMonth})</td>
+          <td class="num">${naira(r.interestPaid)}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>
+    <p class="note assumption">How this is worked out: each month, interest is added first (balance × APR ÷ 12), then the
+    minimum payments go in, then the extra payment plus any freed-up minimums attack the first unpaid debt in the
+    chosen order. No new borrowing, no missed payments, APRs stay as listed. Real lenders may charge fees on top.</p>
+  </section>
+
+  <section class="panel">
+    <h2>The debts</h2>
+    <div class="goal-grid">
+      ${debts.map((d) => `<div class="panel debt-card">
+        <div class="planner-head"><h2>${d.name}</h2><span class="status-badge status-debt">${d.apr}% APR</span></div>
+        ${d.note ? `<p class="note">${d.note}</p>` : ""}
+        <div class="goal-figures"><strong>${naira(d.balance)}</strong> owed</div>
+        <dl class="planner-facts">
+          <div><dt>Minimum / month</dt><dd>${naira(d.minPayment)}</dd></div>
+          <div><dt>Monthly interest</dt><dd>${naira((d.balance * d.apr) / 100 / 12)}</dd></div>
+        </dl>
+        <p class="panel-link">
+          <button class="btn-small" type="button" data-pay-debt="${d.id}">Mark as paid</button>
+          <button class="btn-small" type="button" data-del-debt="${d.id}">Remove</button>
+        </p>
+      </div>`).join("")}
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Add a debt</h2>
+    <form id="add-debt" class="form-grid">
+      <label class="wide">Debt name
+        <input type="text" name="name" placeholder="e.g. Loan from uncle" maxlength="60" required>
+      </label>
+      <label>Balance (₦)
+        <input type="number" name="balance" min="1000" step="1000" placeholder="100000" required>
+      </label>
+      <label>APR (%)
+        <input type="number" name="apr" min="0" max="100" step="0.5" placeholder="18" required>
+      </label>
+      <label>Minimum / month (₦)
+        <input type="number" name="minPayment" min="0" step="1000" placeholder="10000" required>
+      </label>
+      <label class="wide">Note (optional)
+        <input type="text" name="note" placeholder="e.g. Repay by June" maxlength="80">
+      </label>
+      <div class="form-actions"><button type="submit" class="btn">Add debt</button></div>
+    </form>
+    <p class="note" id="debt-form-msg" role="status"></p>
+  </section>`;
+}
+
+export function bindDebts(rerender) {
+  document.querySelectorAll("[data-strategy]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      debtStrategy = btn.dataset.strategy;
+      rerender();
+    }),
+  );
+
+  document.getElementById("debt-extra").addEventListener("input", (e) => {
+    debtExtra = Math.max(0, Math.round(Number(e.target.value) || 0));
+    // Recompute the summary live without a full redraw, so typing does
+    // not lose the cursor — the full numbers refresh on the next redraw.
+    const sim = simulatePayoff(state.debts, debtStrategy, debtExtra);
+    const baseline = simulateMinimumOnly(state.debts, debtStrategy);
+    const result = document.querySelector(".calc-result");
+    if (result) {
+      result.innerHTML =
+        "With " + naira(debtExtra) + " extra a month: debt-free by <strong>" + sim.debtFreeLabel + "</strong>, " +
+        "total interest <strong>" + naira(sim.totalInterest) + "</strong>. Minimum payments alone would cost " +
+        "<strong>" + naira(baseline.totalInterest) + "</strong> in interest and take " + baseline.months + " months — " +
+        "the extra saves <strong>" + naira(baseline.totalInterest - sim.totalInterest) + "</strong>.";
+    }
+  });
+
+  document.querySelectorAll("[data-pay-debt]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const debt = state.debts.find((d) => d.id === btn.dataset.payDebt);
+      if (!debt) return;
+      if (!window.confirm("Mark \"" + debt.name + "\" (" + naira(debt.balance) + ") as paid off? It leaves the list and its " + naira(debt.minPayment) + "/month minimum is freed for the next debt.")) return;
+      markDebtPaid(debt.id);
+      debtFlash = "Paid off: " + debt.name + ". " + (state.debts.length ? state.debts.length + " debt" + (state.debts.length > 1 ? "s" : "") + " left — " + naira(totalBalance(state.debts)) + " still owed." : "The household is debt-free!");
+      rerender();
+    }),
+  );
+
+  document.querySelectorAll("[data-del-debt]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const debt = state.debts.find((d) => d.id === btn.dataset.delDebt);
+      if (!debt) return;
+      if (!window.confirm("Remove \"" + debt.name + "\" from the list? Use this only when a debt was entered by mistake — mark it paid when it is really cleared.")) return;
+      removeDebt(debt.id);
+      debtFlash = "Removed debt: " + debt.name + ".";
+      rerender();
+    }),
+  );
+
+  document.getElementById("add-debt").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const input = {
+      name: fd.get("name"),
+      balance: fd.get("balance"),
+      apr: fd.get("apr"),
+      minPayment: fd.get("minPayment"),
+      note: fd.get("note"),
+    };
+    const problems = validateDebt(input);
+    if (problems.length) {
+      document.getElementById("debt-form-msg").textContent = problems.join(" ");
+      return;
+    }
+    const debt = makeDebt(input, state.nextDebtId);
+    addDebt(debt);
+    debtFlash =
+      "Added debt: " + debt.name + " — " + naira(debt.balance) + " at " + debt.apr + "% APR, " +
+      naira(debt.minPayment) + "/month minimum. Total owed is now " + naira(totalBalance(state.debts)) + ".";
+    rerender();
+  });
 }

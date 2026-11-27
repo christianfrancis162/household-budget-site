@@ -9,6 +9,8 @@ import {
   TRANSACTIONS,
   CATEGORIES,
   GOALS,
+  SAVINGS_GOALS,
+  DEBTS,
   SAVINGS_TARGET,
   MONTHLY_HISTORY,
   DAYS_IN_MONTH,
@@ -49,7 +51,14 @@ export const state = {
   budgets: Object.fromEntries(CATEGORIES.map((c) => [c.id, c.budget])),
   savingsTarget: SAVINGS_TARGET,
   goals: deepCopy(GOALS),
+  // The planner's goals (with deadlines) and the household's debts live
+  // beside the simple goals list — same persistence, separate lists, so
+  // the two pages can never clobber each other.
+  savingsGoals: deepCopy(SAVINGS_GOALS),
+  debts: deepCopy(DEBTS),
   nextId: TRANSACTIONS.length + 1,
+  nextGoalId: SAVINGS_GOALS.length + 1,
+  nextDebtId: DEBTS.length + 1,
 };
 
 const saved = loadSaved();
@@ -58,7 +67,11 @@ if (saved) {
   state.budgets = { ...state.budgets, ...saved.budgets };
   state.savingsTarget = saved.savingsTarget || SAVINGS_TARGET;
   state.goals = saved.goals || deepCopy(GOALS);
+  state.savingsGoals = saved.savingsGoals || deepCopy(SAVINGS_GOALS);
+  state.debts = saved.debts || deepCopy(DEBTS);
   state.nextId = saved.nextId || state.transactions.length + 1;
+  state.nextGoalId = saved.nextGoalId || state.savingsGoals.length + 1;
+  state.nextDebtId = saved.nextDebtId || state.debts.length + 1;
 }
 
 function persist() {
@@ -67,7 +80,11 @@ function persist() {
     budgets: state.budgets,
     savingsTarget: state.savingsTarget,
     goals: state.goals,
+    savingsGoals: state.savingsGoals,
+    debts: state.debts,
     nextId: state.nextId,
+    nextGoalId: state.nextGoalId,
+    nextDebtId: state.nextDebtId,
   });
 }
 
@@ -76,7 +93,11 @@ export function resetAll() {
   state.budgets = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.budget]));
   state.savingsTarget = SAVINGS_TARGET;
   state.goals = deepCopy(GOALS);
+  state.savingsGoals = deepCopy(SAVINGS_GOALS);
+  state.debts = deepCopy(DEBTS);
   state.nextId = TRANSACTIONS.length + 1;
+  state.nextGoalId = SAVINGS_GOALS.length + 1;
+  state.nextDebtId = DEBTS.length + 1;
   try {
     window.localStorage.removeItem(STORAGE_KEY);
   } catch (e) {
@@ -122,6 +143,71 @@ export function contributeToGoal(goalId, amount) {
   if (!goal) return;
   goal.saved = Math.min(goal.target, goal.saved + Math.max(0, Math.round(Number(amount) || 0)));
   persist();
+}
+
+// --- Savings-goals planner mutations ---
+
+// Adds a goal built by goals.js's makePlannerGoal. Returns the new goal.
+export function addPlannerGoal(goal) {
+  state.savingsGoals.push(goal);
+  state.nextGoalId++;
+  persist();
+  return goal;
+}
+
+// Adds money to a planner goal, capped at its target — a goal never shows
+// more saved than its target, and the extra simply is not counted.
+export function contributeToPlannerGoal(goalId, amount) {
+  const goal = state.savingsGoals.find((g) => g.id === goalId);
+  if (!goal) return null;
+  const added = Math.max(0, Math.round(Number(amount) || 0));
+  goal.saved = Math.min(goal.target, goal.saved + added);
+  persist();
+  return goal;
+}
+
+// Removes a planner goal entirely. Returns true when something was removed.
+export function removePlannerGoal(goalId) {
+  const before = state.savingsGoals.length;
+  state.savingsGoals = state.savingsGoals.filter((g) => g.id !== goalId);
+  if (state.savingsGoals.length !== before) {
+    persist();
+    return true;
+  }
+  return false;
+}
+
+// --- Debt payoff mutations ---
+
+// Adds a debt built by debts.js's makeDebt. Returns the new debt.
+export function addDebt(debt) {
+  state.debts.push(debt);
+  state.nextDebtId++;
+  persist();
+  return debt;
+}
+
+// Marks a debt paid off and takes it off the list — the payoff plan then
+// reruns without it, and its minimum payment is freed for the next debt.
+// Returns the removed debt, or null when the id is not found.
+export function markDebtPaid(debtId) {
+  const debt = state.debts.find((d) => d.id === debtId);
+  if (!debt) return null;
+  state.debts = state.debts.filter((d) => d.id !== debtId);
+  persist();
+  return debt;
+}
+
+// Removes a debt without marking it paid — for a debt that was entered by
+// mistake. Returns true when something was removed.
+export function removeDebt(debtId) {
+  const before = state.debts.length;
+  state.debts = state.debts.filter((d) => d.id !== debtId);
+  if (state.debts.length !== before) {
+    persist();
+    return true;
+  }
+  return false;
 }
 
 // --- Derived totals ---
