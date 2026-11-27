@@ -20,7 +20,11 @@ import { buildDossier } from "./vendor/makefun-frontend.ts";
 
 // The repository root is the directory holding this file.
 const repoRoot = fileURLToPath(new URL(".", import.meta.url));
-const outputDir = process.env.MAKEFUN_OUTPUT_DIR ?? "/output";
+// An empty MAKEFUN_OUTPUT_DIR is treated as unset, so a stray empty
+// variable can never make the program wipe the current directory.
+const outputDir = process.env.MAKEFUN_OUTPUT_DIR?.trim()
+  ? process.env.MAKEFUN_OUTPUT_DIR
+  : "/output";
 
 function copyDirIfPresent(name) {
   const from = join(repoRoot, name);
