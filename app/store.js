@@ -11,6 +11,7 @@ import {
   GOALS,
   SAVINGS_GOALS,
   DEBTS,
+  BILLS,
   SAVINGS_TARGET,
   MONTHLY_HISTORY,
   DAYS_IN_MONTH,
@@ -56,9 +57,16 @@ export const state = {
   // the two pages can never clobber each other.
   savingsGoals: deepCopy(SAVINGS_GOALS),
   debts: deepCopy(DEBTS),
+  // The bills manager's list and the envelope moves. Bills carry their
+  // paid flag, so paying one is a state change like any other; envelope
+  // moves are stamped with their week, so they only ever affect the
+  // week they were made in.
+  bills: deepCopy(BILLS),
+  envelopeMoves: [],
   nextId: TRANSACTIONS.length + 1,
   nextGoalId: SAVINGS_GOALS.length + 1,
   nextDebtId: DEBTS.length + 1,
+  nextBillId: BILLS.length + 1,
 };
 
 const saved = loadSaved();
@@ -69,9 +77,12 @@ if (saved) {
   state.goals = saved.goals || deepCopy(GOALS);
   state.savingsGoals = saved.savingsGoals || deepCopy(SAVINGS_GOALS);
   state.debts = saved.debts || deepCopy(DEBTS);
+  state.bills = Array.isArray(saved.bills) && saved.bills.length ? saved.bills : deepCopy(BILLS);
+  state.envelopeMoves = Array.isArray(saved.envelopeMoves) ? saved.envelopeMoves : [];
   state.nextId = saved.nextId || state.transactions.length + 1;
   state.nextGoalId = saved.nextGoalId || state.savingsGoals.length + 1;
   state.nextDebtId = saved.nextDebtId || state.debts.length + 1;
+  state.nextBillId = saved.nextBillId || state.bills.length + 1;
 }
 
 function persist() {
@@ -82,9 +93,12 @@ function persist() {
     goals: state.goals,
     savingsGoals: state.savingsGoals,
     debts: state.debts,
+    bills: state.bills,
+    envelopeMoves: state.envelopeMoves,
     nextId: state.nextId,
     nextGoalId: state.nextGoalId,
     nextDebtId: state.nextDebtId,
+    nextBillId: state.nextBillId,
   });
 }
 
@@ -95,9 +109,12 @@ export function resetAll() {
   state.goals = deepCopy(GOALS);
   state.savingsGoals = deepCopy(SAVINGS_GOALS);
   state.debts = deepCopy(DEBTS);
+  state.bills = deepCopy(BILLS);
+  state.envelopeMoves = [];
   state.nextId = TRANSACTIONS.length + 1;
   state.nextGoalId = SAVINGS_GOALS.length + 1;
   state.nextDebtId = DEBTS.length + 1;
+  state.nextBillId = BILLS.length + 1;
   try {
     window.localStorage.removeItem(STORAGE_KEY);
   } catch (e) {
@@ -208,6 +225,61 @@ export function removeDebt(debtId) {
     return true;
   }
   return false;
+}
+
+// --- Bills manager mutations ---
+
+// Adds a bill built by bills.js's makeBill. Returns the new bill.
+export function addBill(bill) {
+  state.bills.push(bill);
+  state.nextBillId++;
+  persist();
+  return bill;
+}
+
+// Marks a bill paid and stamps it with today's date ("Nov 26") — the
+// bill stays on the list, marked paid, so the household can see what
+// it has cleared. Returns the bill, or null when it is not found.
+export function markBillPaid(billId) {
+  const bill = state.bills.find((b) => b.id === billId);
+  if (!bill) return null;
+  bill.paid = true;
+  bill.paidOn = "Nov " + TODAY_DAY;
+  persist();
+  return bill;
+}
+
+// Unmarks a bill paid — for one marked by mistake. Returns the bill,
+// or null when it is not found.
+export function markBillUnpaid(billId) {
+  const bill = state.bills.find((b) => b.id === billId);
+  if (!bill) return null;
+  bill.paid = false;
+  bill.paidOn = null;
+  persist();
+  return bill;
+}
+
+// Removes a bill entirely. Returns true when something was removed.
+export function deleteBill(billId) {
+  const before = state.bills.length;
+  state.bills = state.bills.filter((b) => b.id !== billId);
+  if (state.bills.length !== before) {
+    persist();
+    return true;
+  }
+  return false;
+}
+
+// --- Envelope moves ---
+
+// Records a move of money between two envelopes, built by
+// envelopes.js's makeMove. The move is stamped with its week, so it
+// only ever changes the week it was made in. Returns the move.
+export function addEnvelopeMove(move) {
+  state.envelopeMoves.push(move);
+  persist();
+  return move;
 }
 
 // --- Derived totals ---

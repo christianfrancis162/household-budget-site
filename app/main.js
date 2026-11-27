@@ -10,6 +10,9 @@
 //   #/debts          Debt payoff planner — snowball vs avalanche
 //   #/calculators    50/30/20 split, goal planner, affordability
 //   #/reports        Six-month report
+//   #/bills          Bills manager — pay, add, track what is still owed
+//   #/envelopes      Weekly envelopes — zero-based, day-to-day spending
+//   #/what-if        What-if simulator — replay the month with a change
 //
 // The page sets window.__shotReady to false while a route loads and to
 // true once it has rendered, so screenshots are taken of finished pages.
@@ -29,6 +32,12 @@ import {
   renderCalculators,
   bindCalculators,
   renderReports,
+  renderBills,
+  bindBills,
+  renderEnvelopes,
+  bindEnvelopes,
+  renderWhatIf,
+  bindWhatIf,
 } from "./views.js";
 
 const ROUTES = {
@@ -40,6 +49,9 @@ const ROUTES = {
   "/debts": { title: "Debt Payoff", render: renderDebts, bind: bindDebts },
   "/calculators": { title: "Calculators", render: renderCalculators, bind: bindCalculators },
   "/reports": { title: "Reports", render: renderReports, bind: null },
+  "/bills": { title: "Bills", render: renderBills, bind: bindBills },
+  "/envelopes": { title: "Weekly Envelopes", render: renderEnvelopes, bind: bindEnvelopes },
+  "/what-if": { title: "What-If Simulator", render: renderWhatIf, bind: bindWhatIf },
 };
 
 const main = document.getElementById("view");

@@ -117,5 +117,20 @@ export const UPCOMING_BILLS = [
   { day: "15 Dec", desc: "School fees top-up", amount: 30000, cat: "school" },
 ];
 
+// The bills manager's list: the same December bills as UPCOMING_BILLS,
+// plus the November water bill already paid, each with an id, a due day
+// and month, and a monthly-or-once flag. The manager reads this list,
+// not the dashboard's short list, so paying a bill here never changes
+// what the dashboard shows — the dashboard's list stays a plain preview.
+export const BILLS = [
+  { id: "b1", desc: "Rent — December", amount: 250000, cat: "housing", dueDay: 1, month: "Dec", recurring: "monthly", note: "3-bed flat, Lekki", paid: false, paidOn: null },
+  { id: "b2", desc: "DSTv Compact", amount: 21000, cat: "utilities", dueDay: 5, month: "Dec", recurring: "monthly", note: "Pay before the 5th or it cuts off", paid: false, paidOn: null },
+  { id: "b3", desc: "Water delivery", amount: 12000, cat: "utilities", dueDay: 8, month: "Dec", recurring: "monthly", note: "Two dispensers a month", paid: false, paidOn: null },
+  { id: "b4", desc: "Generator fuel reserve", amount: 40000, cat: "utilities", dueDay: 10, month: "Dec", recurring: "monthly", note: "Diesel for December", paid: false, paidOn: null },
+  { id: "b5", desc: "Fibre internet", amount: 19500, cat: "utilities", dueDay: 13, month: "Dec", recurring: "monthly", note: "Monthly subscription", paid: false, paidOn: null },
+  { id: "b6", desc: "School fees top-up", amount: 30000, cat: "school", dueDay: 15, month: "Dec", recurring: "once", note: "Term 1 balance for Zara and Tobi", paid: false, paidOn: null },
+  { id: "b7", desc: "Water delivery — November", amount: 12000, cat: "utilities", dueDay: 20, month: "Nov", recurring: "monthly", note: "Paid on the 20th", paid: true, paidOn: "Nov 20" },
+];
+
 export const DAYS_IN_MONTH = 30;
 export const TODAY_DAY = 26;

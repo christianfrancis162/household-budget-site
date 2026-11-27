@@ -280,3 +280,16 @@ h2 { font-size: 19px; margin: 0 0 12px; }
   .household { display: none; }
   nav a { padding: 8px 9px; font-size: 14px; }
 }
+
+/* HomeLedger v4 — bills, envelopes, what-if */
+.bill-row { display: grid; grid-template-columns: 64px 1fr auto auto auto auto auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
+.bill-row:last-child { border-bottom: 0; }
+.bill-row .tx-desc small { display: block; color: #6b7280; font-size: 13px; }
+.bill-row.paid { opacity: 0.65; }
+.bill-due { font-size: 13px; color: #374151; white-space: nowrap; }
+.envelope-card .bar-row { margin-top: 10px; }
+
+@media (max-width: 760px) {
+  .bill-row { display: flex; flex-wrap: wrap; gap: 6px 10px; }
+  .bill-row .tx-desc { flex: 1 1 55%; }
+}

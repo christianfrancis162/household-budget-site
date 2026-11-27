@@ -1,8 +1,8 @@
-// The six pages of HomeLedger. Each render function returns HTML for its
+// The eleven pages of HomeLedger. Each render function returns HTML for its
 // route; each bind function wires that page's controls after it is drawn.
 // All figures come from store.js, so every page agrees with every other.
 
-import { HOUSEHOLD, CATEGORIES, GOALS, UPCOMING_BILLS } from "./data.js";
+import { HOUSEHOLD, CATEGORIES, GOALS, UPCOMING_BILLS, TODAY_DAY } from "./data.js";
 import {
   state,
   incomeTotal,
@@ -27,6 +27,11 @@ import {
   addDebt,
   markDebtPaid,
   removeDebt,
+  addBill,
+  markBillPaid,
+  markBillUnpaid,
+  deleteBill,
+  addEnvelopeMove,
 } from "./store.js";
 import { naira, signedNaira, shortNaira, pct, dayLabel } from "./format.js";
 import { barsChart, donutChart, CATEGORY_COLORS } from "./charts.js";
@@ -57,6 +62,29 @@ import {
   makeDebt,
   strategyFirstStep,
 } from "./debts.js";
+import {
+  dueLabel,
+  billStatus,
+  sortBills,
+  billsSummary,
+  recurringMonthlyTotal,
+  validateBill,
+  makeBill,
+} from "./bills.js";
+import {
+  currentWeek,
+  envelopesForHousehold,
+  envelopeSummary,
+  validateMove,
+  makeMove,
+} from "./envelopes.js";
+import {
+  emptyAdjustments,
+  simulate,
+  presetScenarios,
+  whatIfVerdicts,
+  cuttableCategories,
+} from "./whatif.js";
 
 function catLabel(id) {
   if (id === "income") return "Income";
@@ -73,6 +101,8 @@ let txFlash = "";
 let goalFlash = "";
 let plannerFlash = "";
 let debtFlash = "";
+let billFlash = "";
+let envelopeFlash = "";
 
 function moneyCard(label, value, sub, tone) {
   return `<div class="card money ${tone || ""}">
@@ -937,6 +967,345 @@ export function bindDebts(rerender) {
     debtFlash =
       "Added debt: " + debt.name + " — " + naira(debt.balance) + " at " + debt.apr + "% APR, " +
       naira(debt.minPayment) + "/month minimum. Total owed is now " + naira(totalBalance(state.debts)) + ".";
+    rerender();
+  });
+}
+
+// ---------------- Bills manager ----------------
+
+// The bills page: every bill the household owes, soonest first, with
+// what is still to pay and what is already cleared. Paying a bill only
+// marks it paid — it never adds a transaction, because a December bill
+// is not November spending.
+export function renderBills() {
+  const summary = billsSummary(state.bills);
+  const flash = billFlash;
+  billFlash = "";
+  const rows = sortBills(state.bills).map((b) => {
+    const status = billStatus(b);
+    const badge =
+      status === "paid" ? `<span class="status-badge status-complete">Paid</span>` :
+      status === "overdue" ? `<span class="status-badge status-past-due">Overdue</span>` :
+      status === "due-soon" ? `<span class="status-badge status-tight">Due soon</span>` :
+      `<span class="status-badge">Upcoming</span>`;
+    return `<li class="bill-row ${status}">
+      <span class="tx-day">${b.month} ${b.dueDay}</span>
+      <span class="tx-desc">${b.desc}<small>${b.note ? " — " + b.note : ""} · ${catLabel(b.cat)} · ${b.recurring === "monthly" ? "every month" : "one-off"}</small></span>
+      <span class="tx-amt ${b.paid ? "in" : "out"}">${b.paid ? "" : "−"}${naira(b.amount)}</span>
+      <span class="bill-due">${dueLabel(b)}</span>
+      ${badge}
+      ${b.paid
+        ? `<button class="btn-small" type="button" data-unpay-bill="${b.id}">Undo</button>`
+        : `<button class="btn-small" type="button" data-pay-bill="${b.id}">Mark paid</button>`}
+      <button class="btn-small" type="button" data-del-bill="${b.id}">Remove</button>
+    </li>`;
+  }).join("");
+  return `
+  <h1>Bills</h1>
+  <p class="lede">Every bill the household owes, soonest first — pay them here and the totals move with you.</p>
+  ${flash ? `<p class="note" role="status">${flash}</p>` : ""}
+
+  <div class="money-grid">
+    ${moneyCard("Still to pay", naira(summary.dueTotal), summary.unpaidCount + " bill" + (summary.unpaidCount === 1 ? "" : "s") + " unpaid", "out")}
+    ${moneyCard("Paid so far", naira(summary.paidTotal), summary.paidCount + " bill" + (summary.paidCount === 1 ? "" : "s") + " cleared", "in")}
+    ${moneyCard("Every month", naira(recurringMonthlyTotal(state.bills)), "recurring bills alone, before one-offs", "")}
+  </div>
+
+  <section class="panel" aria-label="Bills">
+    <h2>December bills${summary.overdueCount ? " — " + summary.overdueCount + " overdue" : ""}</h2>
+    <ul class="tx-list">
+      ${rows}
+    </ul>
+    <p class="note">${summary.next ? "Pay next: " + summary.next.desc + " (" + naira(summary.next.amount) + ", " + dueLabel(summary.next) + ")." : "Nothing left to pay — every bill on the list is cleared."}</p>
+  </section>
+
+  <section class="panel" aria-label="Add a bill">
+    <h2>Add a bill</h2>
+    <form id="add-bill" class="form-grid">
+      <label>Bill name<input name="desc" type="text" placeholder="e.g. DSTv Compact" required></label>
+      <label>Amount (₦)<input name="amount" type="number" min="1" step="1" placeholder="21000" required></label>
+      <label>Due month
+        <select name="month"><option value="Dec">December</option><option value="Nov">November</option></select>
+      </label>
+      <label>Due day<input name="dueDay" type="number" min="1" max="31" placeholder="5" required></label>
+      <label>Category
+        <select name="cat">${CATEGORIES.map((c) => `<option value="${c.id}">${c.label}</option>`).join("")}</select>
+      </label>
+      <label>Repeats
+        <select name="recurring"><option value="monthly">Every month</option><option value="once">One-off</option></select>
+      </label>
+      <label>Note<input name="note" type="text" placeholder="Optional — e.g. pay before it cuts off"></label>
+      <div class="form-actions"><button class="btn" type="submit">Add bill</button><span id="bill-form-msg" role="alert"></span></div>
+    </form>
+  </section>`;
+}
+
+export function bindBills(rerender) {
+  document.querySelectorAll("[data-pay-bill]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const bill = state.bills.find((b) => b.id === btn.dataset.payBill);
+      if (!bill) return;
+      if (!window.confirm("Mark \"" + bill.desc + "\" (" + naira(bill.amount) + ", due " + bill.month + " " + bill.dueDay + ") as paid?")) return;
+      markBillPaid(bill.id);
+      const summary = billsSummary(state.bills);
+      billFlash = "Paid: " + bill.desc + " — " + naira(bill.amount) + ". Still to pay: " + naira(summary.dueTotal) + " across " + summary.unpaidCount + " bill" + (summary.unpaidCount === 1 ? "" : "s") + ".";
+      rerender();
+    }),
+  );
+
+  document.querySelectorAll("[data-unpay-bill]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const bill = state.bills.find((b) => b.id === btn.dataset.unpayBill);
+      if (!bill) return;
+      markBillUnpaid(bill.id);
+      billFlash = "Undid payment: " + bill.desc + " is unpaid again.";
+      rerender();
+    }),
+  );
+
+  document.querySelectorAll("[data-del-bill]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const bill = state.bills.find((b) => b.id === btn.dataset.delBill);
+      if (!bill) return;
+      if (!window.confirm("Remove \"" + bill.desc + "\" from the bills list? Use this only when a bill was entered by mistake.")) return;
+      deleteBill(bill.id);
+      billFlash = "Removed bill: " + bill.desc + ".";
+      rerender();
+    }),
+  );
+
+  document.getElementById("add-bill").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const input = {
+      desc: fd.get("desc"),
+      amount: fd.get("amount"),
+      dueDay: fd.get("dueDay"),
+      month: fd.get("month"),
+      cat: fd.get("cat"),
+      recurring: fd.get("recurring"),
+      note: fd.get("note"),
+    };
+    const problems = validateBill(input);
+    if (problems.length) {
+      document.getElementById("bill-form-msg").textContent = problems.join(" ");
+      return;
+    }
+    const bill = makeBill(input, state.nextBillId);
+    addBill(bill);
+    billFlash =
+      "Added bill: " + bill.desc + " — " + naira(bill.amount) + ", due " + bill.month + " " + bill.dueDay +
+      " (" + dueLabel(bill) + "). Still to pay: " + naira(billsSummary(state.bills).dueTotal) + ".";
+    rerender();
+  });
+}
+
+// ---------------- Weekly envelopes ----------------
+
+// The envelope page: the household's day-to-day spending split into
+// weekly envelopes, for the week it is in now (week 4, Nov 22–28).
+// An envelope's allowance is its share of the month in proportion to
+// the days in the week, and what it spent is the transactions in that
+// category on those days.
+export function renderEnvelopes() {
+  const week = currentWeek();
+  const envelopes = envelopesForHousehold(state.budgets, state.transactions, state.envelopeMoves);
+  const summary = envelopeSummary(envelopes);
+  const flash = envelopeFlash;
+  envelopeFlash = "";
+  const cards = envelopes.map((e) => {
+    const badge =
+      e.pace === "over" ? `<span class="status-badge status-past-due">Over envelope</span>` :
+      e.pace === "tight" ? `<span class="status-badge status-tight">Tight</span>` :
+      `<span class="status-badge status-on-track">On track</span>`;
+    return `<div class="card envelope-card">
+      <div class="planner-head"><h3>${e.label}</h3>${badge}</div>
+      <p class="note">${e.note}</p>
+      ${barRow("Week " + e.week + " spending", e.spent, e.available, CATEGORY_COLORS[e.catId])}
+      <div class="planner-facts">
+        <span>Allowance <strong>${naira(e.allowance)}</strong></span>
+        <span>Moved <strong>${e.moved >= 0 ? "+" : "−"}${naira(Math.abs(e.moved))}</strong></span>
+        <span>Left <strong>${naira(e.left)}</strong></span>
+      </div>
+      <p class="note">${e.pace === "over"
+        ? "Over by " + naira(-e.left) + " — move money in from another envelope, or hold spending here until Sunday."
+        : e.pace === "tight"
+          ? "Less than a quarter left with " + (week.end - TODAY_DAY) + " days to go in the week — spend carefully."
+          : naira(e.left) + " left for the rest of the week."}</p>
+    </div>`;
+  }).join("");
+  return `
+  <h1>Weekly envelopes</h1>
+  <p class="lede">Zero-based envelopes for the spending the household does day to day. Week ${week.week} runs Nov ${week.start}–${week.end}; each envelope holds its share of the month for those days.</p>
+  ${flash ? `<p class="note" role="status">${flash}</p>` : ""}
+
+  <div class="money-grid">
+    ${moneyCard("This week's envelopes", naira(summary.allowance), "across 5 day-to-day categories", "")}
+    ${moneyCard("Spent this week", naira(summary.spent), "Nov " + week.start + "–" + TODAY_DAY, "out")}
+    ${moneyCard("Left in the envelopes", naira(summary.left), summary.overCount ? summary.overCount + " envelope" + (summary.overCount === 1 ? "" : "s") + " over" : "every envelope inside its week", summary.overCount ? "out" : "in")}
+  </div>
+
+  <div class="goal-grid">
+    ${cards}
+  </div>
+
+  <section class="panel" aria-label="Move money between envelopes">
+    <h2>Move money between envelopes</h2>
+    <p class="note">Short in one envelope and flush in another? Move money across — the envelopes always add up to the month's budget for these categories, and a move only ever affects this week.</p>
+    <form id="move-envelope" class="form-grid">
+      <label>From
+        <select name="from">${envelopes.map((e) => `<option value="${e.catId}">${e.label} — ${naira(e.left)} left</option>`).join("")}</select>
+      </label>
+      <label>To
+        <select name="to">${envelopes.map((e) => `<option value="${e.catId}">${e.label}</option>`).join("")}</select>
+      </label>
+      <label>Amount (₦)<input name="amount" type="number" min="1" step="1" placeholder="10000" required></label>
+      <div class="form-actions"><button class="btn" type="submit">Move money</button><span id="move-form-msg" role="alert"></span></div>
+    </form>
+  </section>
+
+  <p class="note">Week 5 (Nov 29–30) is a 2-day stub week — its allowance is 2/30 of the month, not a full week. Rent, school fees, utilities and health are fixed bills, not envelopes: they are paid once, so they do not get a weekly allowance.</p>`;
+}
+
+export function bindEnvelopes(rerender) {
+  document.getElementById("move-envelope").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const input = { from: fd.get("from"), to: fd.get("to"), amount: fd.get("amount") };
+    const envelopes = envelopesForHousehold(state.budgets, state.transactions, state.envelopeMoves);
+    const problems = validateMove(input, envelopes);
+    if (problems.length) {
+      document.getElementById("move-form-msg").textContent = problems.join(" ");
+      return;
+    }
+    const move = makeMove(input, currentWeek());
+    addEnvelopeMove(move);
+    const from = envelopes.find((x) => x.catId === move.from);
+    const to = envelopes.find((x) => x.catId === move.to);
+    envelopeFlash =
+      "Moved " + naira(move.amount) + " from " + (from ? from.label : move.from) + " to " + (to ? to.label : move.to) +
+      " for week " + move.week + ". " + (to ? to.label : move.to) + " now has " + naira((to ? to.available : 0) + move.amount - (to ? to.spent : 0)) + " left this week.";
+    rerender();
+  });
+}
+
+// ---------------- What-if simulator ----------------
+
+// The simulator's working figures live on this page only — the page
+// never writes them back to the store, so trying a change can never
+// change the household's real money.
+let whatIfAdj = emptyAdjustments();
+let whatIfPresetName = "";
+
+export function renderWhatIf() {
+  const base = {
+    income: incomeTotal(),
+    spentByCat: spentByCategory(),
+    saved: savedTotal(),
+    spent: spentTotal(),
+  };
+  const sim = simulate(base, whatIfAdj);
+  const verdicts = whatIfVerdicts(base, sim);
+  const presets = presetScenarios(base);
+  const cuttable = cuttableCategories(base.spentByCat);
+  const changed = whatIfAdj.cuts.length > 0 || whatIfAdj.extraIncome > 0 || whatIfAdj.extraSavings > 0;
+  return `
+  <h1>What-if simulator</h1>
+  <p class="lede">Try a change before making it — cut a category, add income, save more — and see the month replayed with it applied. Nothing here touches the household's real money.</p>
+
+  <div class="money-grid">
+    ${moneyCard("Income", naira(base.income), "this month, so far", "")}
+    ${moneyCard("Spent", naira(base.spent), "across all categories", "out")}
+    ${moneyCard("Saved", naira(base.saved), base.saved ? Math.round((base.saved / base.income) * 100) + "% savings rate" : "nothing saved yet", "in")}
+    ${moneyCard("Left", naira(base.income - base.spent - base.saved), "income minus spending minus savings", "")}
+  </div>
+
+  <section class="panel" aria-label="Try a preset">
+    <h2>Try a preset</h2>
+    <div class="strategy-picker">
+      ${presets.map((p) => `<button class="btn strategy-btn${whatIfPresetName === p.id ? " active" : ""}" type="button" data-preset="${p.id}">${p.name}</button>`).join("")}
+      <button class="btn strategy-btn" type="button" data-preset="reset">Reset</button>
+    </div>
+    <p class="note">${whatIfPresetName ? presets.find((p) => p.id === whatIfPresetName)?.desc || "" : "Or set your own change below."}</p>
+  </section>
+
+  <section class="panel" aria-label="Your own change">
+    <h2>Your own change</h2>
+    <form id="what-if" class="form-grid">
+      <label>Cut a category
+        <select name="cutCat"><option value="">No cut</option>${cuttable.map((c) => `<option value="${c.id}"${whatIfAdj.cuts[0]?.cat === c.id ? " selected" : ""}>${c.label} — spent ${naira(c.spent)}</option>`).join("")}</select>
+      </label>
+      <label>Cut by (₦)<input name="cutAmount" type="number" min="0" step="1000" value="${whatIfAdj.cuts[0]?.amount || ""}" placeholder="20000"></label>
+      <label>Extra income (₦)<input name="extraIncome" type="number" min="0" step="1000" value="${whatIfAdj.extraIncome || ""}" placeholder="45000"></label>
+      <label>Extra savings (₦)<input name="extraSavings" type="number" min="0" step="1000" value="${whatIfAdj.extraSavings || ""}" placeholder="50000"></label>
+      <div class="form-actions"><button class="btn" type="submit">Run the numbers</button><span id="whatif-form-msg" role="alert"></span></div>
+    </form>
+    <p class="note">Money cut from a category is saved instead — the household keeps what it does not spend. Extra savings is moved from what is left into savings.</p>
+  </section>
+
+  <section class="panel" aria-label="The month replayed">
+    <h2>The month replayed${changed ? " — with your change" : ""}</h2>
+    <div class="money-grid">
+      ${moneyCard("Left after the change", naira(sim.remaining), sim.remaining >= 0 ? "what the household keeps" : "short for the month", sim.remaining >= 0 ? "in" : "out")}
+      ${moneyCard("Savings rate", sim.savingsRate + "%", "was " + Math.round((base.saved / base.income) * 100) + "%", sim.savingsRate >= Math.round((base.saved / base.income) * 100) ? "in" : "")}
+      ${moneyCard("Spent after the change", naira(sim.spent), "was " + naira(base.spent), "")}
+    </div>
+    ${splitRow("Needs", sim.split.needs, sim.split.needsPct, 50, "#166534", "rent, food, transport, bills, school")}
+    ${splitRow("Wants", sim.split.wants, sim.split.wantsPct, 30, "#d97706", "entertainment, clothing, misc")}
+    ${splitRow("Savings", sim.split.saved, sim.split.savePct, 20, "#1d4ed8", "the monthly transfer")}
+    <ul class="legend-list">
+      ${verdicts.map((v) => `<li>${v}</li>`).join("")}
+    </ul>
+  </section>`;
+}
+
+export function bindWhatIf(rerender) {
+  document.querySelectorAll("[data-preset]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const base = {
+        income: incomeTotal(),
+        spentByCat: spentByCategory(),
+        saved: savedTotal(),
+        spent: spentTotal(),
+      };
+      if (btn.dataset.preset === "reset") {
+        whatIfAdj = emptyAdjustments();
+        whatIfPresetName = "";
+      } else {
+        const preset = presetScenarios(base).find((p) => p.id === btn.dataset.preset);
+        if (!preset) return;
+        whatIfAdj = {
+          cuts: preset.adjustments.cuts.map((c) => ({ ...c })),
+          extraIncome: preset.adjustments.extraIncome,
+          extraSavings: preset.adjustments.extraSavings,
+        };
+        whatIfPresetName = preset.id;
+      }
+      rerender();
+    }),
+  );
+
+  document.getElementById("what-if").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const cutCat = fd.get("cutCat");
+    const cutAmount = Math.max(0, Math.round(Number(fd.get("cutAmount")) || 0));
+    const extraIncome = Math.max(0, Math.round(Number(fd.get("extraIncome")) || 0));
+    const extraSavings = Math.max(0, Math.round(Number(fd.get("extraSavings")) || 0));
+    if (cutCat && cutAmount <= 0) {
+      document.getElementById("whatif-form-msg").textContent = "Pick how much to cut from the category — more than ₦0.";
+      return;
+    }
+    if (!cutCat && !extraIncome && !extraSavings) {
+      document.getElementById("whatif-form-msg").textContent = "Set at least one change — a cut, extra income or extra savings.";
+      return;
+    }
+    whatIfAdj = {
+      cuts: cutCat && cutAmount > 0 ? [{ cat: cutCat, amount: cutAmount }] : [],
+      extraIncome,
+      extraSavings,
+    };
+    whatIfPresetName = "";
     rerender();
   });
 }
