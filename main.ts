@@ -13,7 +13,7 @@
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
 // The grader runs it with /output as the target instead.
 
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildDossier } from "./vendor/makefun-frontend.ts";
@@ -33,8 +33,12 @@ function copyDirIfPresent(name) {
 }
 
 // Start from a clean output directory so a stale file can never ride along.
-rmSync(outputDir, { recursive: true, force: true });
+// Never remove the directory itself: the grader mounts /output as a volume,
+// and removing a mounted directory throws EBUSY. Clear its contents instead.
 mkdirSync(outputDir, { recursive: true });
+for (const entry of readdirSync(outputDir)) {
+  rmSync(join(outputDir, entry), { recursive: true, force: true });
+}
 copyDirIfPresent("app");
 copyDirIfPresent("screenshots");
 
