@@ -12,6 +12,7 @@ import {
   budgetTotal,
   remaining,
   savingsRate,
+  split502030,
   daysLeft,
   dailyPace,
   monthlyTrend,
@@ -30,6 +31,13 @@ function catLabel(id) {
   const c = CATEGORIES.find((x) => x.id === id);
   return c ? c.label : id;
 }
+
+// One-shot confirmations: a form sets these, then rerender() redraws the
+// page — the message is printed into the fresh page and cleared, so it
+// survives the redraw instead of being wiped by it (the v1 bug: the
+// "Added" message was written and then immediately erased by rerender).
+let txFlash = "";
+let goalFlash = "";
 
 function moneyCard(label, value, sub, tone) {
   return `<div class="card money ${tone || ""}">
@@ -51,16 +59,68 @@ function barRow(label, spent, budget, color) {
 
 // ---------------- Dashboard ----------------
 
+// One row of the 50/30/20 panel: the household's real share of income
+// against the rule's target, with the target drawn as a tick on the bar.
+function splitRow(label, amount, actualPct, targetPct, color, what) {
+  const over = actualPct > targetPct;
+  return `<div class="split-row">
+    <div class="bar-head"><span>${label} — ${what}</span><span>${naira(amount)} · ${actualPct}% of income</span></div>
+    <div class="bar-track split-track"><div class="bar-fill" style="width:${Math.min(100, actualPct)}%;background:${color}"></div><span class="split-target" style="left:${targetPct}%"></span></div>
+    <div class="bar-foot"><span>Target ${targetPct}%</span><span>${over ? actualPct - targetPct + " points over target" : targetPct - actualPct + " points under target"}</span></div>
+  </div>`;
+}
+
+// Plain-English verdict on the household's real split, computed from live
+// figures so it stays true when the household edits its money.
+function splitVerdict(s) {
+  const bits = [];
+  if (s.needsPct > 50) {
+    bits.push(
+      "Needs run " + s.needsPct + "% — " + (s.needsPct - 50) + " points over the 50% target. " +
+      "Rent (" + naira(spentByCategory().housing) + ") and school fees (" + naira(spentByCategory().school) +
+      ") are fixed this month, so the gap has to close on the savings side, not by cutting needs.",
+    );
+  } else {
+    bits.push("Needs sit at " + s.needsPct + "%, inside the 50% target — the essentials are covered.");
+  }
+  if (s.wantsPct < 30) {
+    bits.push(
+      "Wants are only " + s.wantsPct + "% — well inside the 30% — so the slack is there.",
+    );
+  }
+  if (s.savePct < 20) {
+    const shortfall = Math.round(s.income * 0.2) - s.saved;
+    bits.push(
+      "Savings sit at " + s.savePct + "% — " + naira(shortfall) + " short of 20%. " +
+      "Move that much of the " + naira(remaining()) + " left before the 30th and the household hits the target.",
+    );
+  } else {
+    bits.push("Savings are at " + s.savePct + "% — the 20% target is met.");
+  }
+  return bits.join(" ");
+}
+
 export function renderDashboard() {
   const spent = spentByCategory();
   const pace = dailyPace();
   const trend = monthlyTrend();
+  const split = split502030();
   const recent = [...state.transactions].sort((a, b) => b.day - a.day || b.id - a.id).slice(0, 6);
-  const goals = state.goals.slice(0, 3);
 
   return `
   <h1>November 2026 at a glance</h1>
   <p class="lede">${HOUSEHOLD.name} · ${HOUSEHOLD.place} · ${HOUSEHOLD.members.join(" · ")}</p>
+
+  <section class="panel household-card" aria-label="The household">
+    <h2>The Okafor Household</h2>
+    <p>A family of four in Lekki, Lagos, keeping its November 2026 budget in naira — every figure on this site is their real month so far, down to the last danfo fare.</p>
+    <div class="household-members">
+      <div class="member"><strong>Chidi Okafor</strong><span>Software engineer · ${naira(850000)}</span></div>
+      <div class="member"><strong>Adaeze Okafor</strong><span>Teacher + weekend tutoring · ${naira(445000)}</span></div>
+      <div class="member"><strong>Zara, 9</strong><span>Primary school · Term 1 fees paid</span></div>
+      <div class="member"><strong>Tobi, 6</strong><span>Nursery school · clinic visit Nov 22</span></div>
+    </div>
+  </section>
 
   <section class="money-grid" aria-label="Month summary">
     ${moneyCard("Money in", naira(incomeTotal()), "3 paydays + tutoring", "in")}
@@ -79,6 +139,18 @@ export function renderDashboard() {
       ${CATEGORIES.map((c) => barRow(c.label, spent[c.id], state.budgets[c.id], CATEGORY_COLORS[c.id])).join("")}
       <p class="panel-link"><a href="#/budget">Adjust the budgets →</a></p>
     </section>
+    <section class="panel" aria-label="50 30 20 split">
+      <h2>Our 50 / 30 / 20 split</h2>
+      <p class="note">The rule: 50% needs, 30% wants, 20% savings. The black tick is the target — here is where November really sits.</p>
+      ${splitRow("Needs", split.needs, split.needsPct, 50, "#166534", "rent, food, transport, bills, school")}
+      ${splitRow("Wants", split.wants, split.wantsPct, 30, "#d97706", "eating out, cinema, clothes, extras")}
+      ${splitRow("Savings", split.saved, split.savePct, 20, "#0369a1", "emergency fund + goals")}
+      <p class="verdict">${splitVerdict(split)}</p>
+      <p class="panel-link"><a href="#/calculators">Try the split on your own income →</a></p>
+    </section>
+  </div>
+
+  <div class="two-col">
     <section class="panel" aria-label="Six month trend">
       <h2>Six months: in vs out</h2>
       ${barsChart(trend.map((m) => ({ label: m.month.split(" ")[0], income: m.income, spent: m.spent })), 520, 210)}
@@ -86,9 +158,6 @@ export function renderDashboard() {
       <span class="swatch" style="background:#d97706"></span> Spending</p>
       <p class="note">November spending is still climbing — 4 days to go. September was the heaviest month at ${naira(1180000)}.</p>
     </section>
-  </div>
-
-  <div class="two-col">
     <section class="panel" aria-label="Recent transactions">
       <h2>Latest spending</h2>
       <ul class="tx-list">
@@ -96,13 +165,19 @@ export function renderDashboard() {
       </ul>
       <p class="panel-link"><a href="#/transactions">All ${state.transactions.length} transactions →</a></p>
     </section>
-    <section class="panel" aria-label="Bills and goals">
+  </div>
+
+  <div class="two-col">
+    <section class="panel" aria-label="Upcoming bills">
       <h2>Coming up</h2>
       <ul class="tx-list">
         ${UPCOMING_BILLS.map((b) => `<li><span class="tx-day">${b.day}</span><span class="tx-desc">${b.desc}</span><span class="tx-amt out">−${naira(b.amount)}</span></li>`).join("")}
       </ul>
-      <h2 class="goals-h">Savings goals</h2>
-      ${goals.map((g) => `<div class="goal-mini"><span>${g.name}</span><span>${pct(g.saved, g.target)}% · ${naira(g.saved)} of ${naira(g.target)}</span></div>
+      <p class="note">December rent lands on the 1st — ${naira(250000)} of the ${naira(remaining())} left is already spoken for.</p>
+    </section>
+    <section class="panel" aria-label="Savings goals">
+      <h2>Savings goals</h2>
+      ${state.goals.map((g) => `<div class="goal-mini"><span>${g.name}</span><span>${pct(g.saved, g.target)}% · ${naira(g.saved)} of ${naira(g.target)}</span></div>
       <div class="bar-track slim"><div class="bar-fill" style="width:${pct(g.saved, g.target)}%;background:#166534"></div></div>`).join("")}
       <p class="panel-link"><a href="#/goals">All savings goals →</a></p>
     </section>
@@ -114,6 +189,8 @@ export function renderDashboard() {
 export function renderTransactions() {
   const sorted = [...state.transactions].sort((a, b) => b.day - a.day || b.id - a.id);
   const income = state.transactions.filter((t) => t.kind === "income").length;
+  const msg = txFlash;
+  txFlash = "";
   return `
   <h1>Transactions</h1>
   <p class="lede">Every naira in and out this month — ${state.transactions.length} entries, ${income} of them income.</p>
@@ -146,7 +223,7 @@ export function renderTransactions() {
       </label>
       <div class="form-actions"><button type="submit" class="btn">Add it</button></div>
     </form>
-    <p class="note" id="add-tx-msg" role="status"></p>
+    <p class="note" id="add-tx-msg" role="status">${msg}</p>
   </section>
 
   <section class="panel">
@@ -198,10 +275,8 @@ export function bindTransactions(rerender) {
       kind: fd.get("kind"),
       amount: Number(fd.get("amount")),
     });
-    document.getElementById("add-tx-msg").textContent =
+    txFlash =
       "Added: " + tx.desc + " — " + signedNaira(tx.amount) + ". Totals updated everywhere.";
-    form.reset();
-    form.elements.day.value = 26;
     rerender();
   });
 
@@ -294,10 +369,13 @@ export function bindBudget(rerender) {
 export function renderGoals() {
   const totalSaved = state.goals.reduce((a, g) => a + g.saved, 0);
   const totalTarget = state.goals.reduce((a, g) => a + g.target, 0);
+  const msg = goalFlash;
+  goalFlash = "";
   return `
   <h1>Savings goals</h1>
   <p class="lede"><strong>${naira(totalSaved)}</strong> saved toward <strong>${naira(totalTarget)}</strong> across ${state.goals.length} goals.
   Add money to any goal and its bar moves at once.</p>
+  ${msg ? `<p class="calc-result" role="status">${msg}</p>` : ""}
 
   <div class="goal-grid">
     ${state.goals.map((g) => {
@@ -326,7 +404,12 @@ export function bindGoals(rerender) {
   document.querySelectorAll(".goal-form").forEach((form) =>
     form.addEventListener("submit", (e) => {
       e.preventDefault();
-      contributeToGoal(form.dataset.goal, Number(new FormData(form).get("amount")));
+      const amount = Number(new FormData(form).get("amount"));
+      const goal = state.goals.find((g) => g.id === form.dataset.goal);
+      contributeToGoal(form.dataset.goal, amount);
+      goalFlash =
+        "Added " + naira(amount) + " to " + goal.name + " — now " + naira(goal.saved) +
+        " of " + naira(goal.target) + " (" + pct(goal.saved, goal.target) + "% there).";
       rerender();
     }),
   );
@@ -388,14 +471,12 @@ export function renderCalculators() {
 }
 
 export function bindCalculators() {
-  // The household's real split, from live figures: wants are entertainment,
-  // clothing and misc; everything else spent is needs.
-  const spent = spentByCategory();
-  const wants = spent.entertainment + spent.clothing + spent.misc;
-  const needs = spentTotal() - wants;
+  // The household's real split, from live figures — the same definition
+  // the dashboard's 50/30/20 panel uses.
+  const s = split502030();
   document.getElementById("real-split").textContent =
-    "This household's real split this month: needs " + naira(needs) + " on essentials, wants " +
-    naira(wants) + " on fun and extras, savings " + naira(savedTotal()) + ".";
+    "This household's real split this month: needs " + naira(s.needs) + " (" + s.needsPct + "%) on essentials, wants " +
+    naira(s.wants) + " (" + s.wantsPct + "%) on fun and extras, savings " + naira(s.saved) + " (" + s.savePct + "%).";
 
   const split = () => {
     const income = Number(document.getElementById("split-income").value) || 0;

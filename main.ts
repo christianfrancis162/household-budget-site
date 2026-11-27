@@ -1,9 +1,13 @@
-// HomeLedger hand-in program (Node 22, standard library only).
+// HomeLedger v2 hand-in program (Node 22, standard library only).
 //
 // It gathers the site — app/ and screenshots/ from beside this file — into
 // the output directory and writes dossier.json there with the kit's vendored
 // buildDossier from vendor/makefun-frontend.ts, which must stay untouched:
 // the scorer rebuilds the dossier with its own copy and compares bytes.
+//
+// v2: the dashboard names the household (the Okafor family of Lekki, Lagos)
+// and shows its real 50/30/20 split against the rule, with a verdict on
+// what to do about it; every form now confirms what it did.
 //
 // Run it locally like this:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
@@ -41,4 +45,4 @@ const dossier = buildDossier(outputDir, {
   app_max_bytes: 16777216,
 });
 writeFileSync(join(outputDir, "dossier.json"), dossier);
-console.log("HomeLedger dossier written to " + join(outputDir, "dossier.json"));
+console.log("HomeLedger v2 dossier written to " + join(outputDir, "dossier.json"));

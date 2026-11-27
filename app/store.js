@@ -14,6 +14,7 @@ import {
   DAYS_IN_MONTH,
   TODAY_DAY,
 } from "./data.js";
+import { pct } from "./format.js";
 
 const STORAGE_KEY = "homeledger-v1";
 
@@ -161,6 +162,28 @@ export function remaining() {
 export function savingsRate() {
   const income = incomeTotal();
   return income ? Math.round((savedTotal() / income) * 100) : 0;
+}
+
+// The household's 50/30/20 split, from live figures: wants are
+// entertainment, clothing and misc; everything else spent is needs;
+// savings are the monthly transfer to the savings account. The
+// calculators page and the dashboard both read this one definition,
+// so the split can never disagree between pages.
+export function split502030() {
+  const spent = spentByCategory();
+  const income = incomeTotal();
+  const wants = spent.entertainment + spent.clothing + spent.misc;
+  const needs = spentTotal() - wants;
+  const saved = savedTotal();
+  return {
+    income,
+    needs,
+    wants,
+    saved,
+    needsPct: pct(needs, income),
+    wantsPct: pct(wants, income),
+    savePct: pct(saved, income),
+  };
 }
 
 export function daysLeft() {

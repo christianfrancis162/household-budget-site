@@ -16,15 +16,19 @@ reports always agree.
 
 Six pages, each reached by a link and by its own URL:
 
-- `#/` — Dashboard: money in / spent / saved / left, daily pace, budget
-  bars for all 9 categories, six-month income-vs-spending chart, latest
-  transactions, upcoming bills, savings goals
+- `#/` — Dashboard: the Okafor household card (who they are, who earns
+  what), money in / spent / saved / left, daily pace, budget bars for all
+  9 categories, the household's real 50/30/20 split against the rule with
+  a verdict on what to do about it, six-month income-vs-spending chart,
+  latest transactions, upcoming bills, savings goals
 - `#/transactions` — all 31 transactions with category, type and search
-  filters, an add-transaction form that updates every total, and delete
+  filters, an add-transaction form that updates every total and confirms
+  what it added, and delete
 - `#/budget` — the monthly plan: edit any category budget or the savings
   transfer and the bars and totals move with it
 - `#/goals` — four savings goals with progress bars and an add-money form
-  on each (emergency fund, school fees, Tokunbo car, Detty December)
+  on each that confirms the new total (emergency fund, school fees,
+  Tokunbo car, Detty December)
 - `#/calculators` — a 50/30/20 income splitter, a goal planner (how much
   a month to hit a goal on time) and a "can we afford it?" check
 - `#/reports` — six-month income vs spending, a spending donut, and a

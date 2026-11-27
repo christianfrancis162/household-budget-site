@@ -64,6 +64,28 @@ h2 { font-size: 19px; margin: 0 0 12px; }
   padding: 10px 14px; margin: 0 0 18px; font-size: 15px;
 }
 
+/* Household identity card */
+.household-card { background: #f0fdf4; border-color: #86efac; }
+.household-card h2 { margin-bottom: 4px; }
+.household-card > p { margin: 0 0 12px; }
+.household-members {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+}
+.member strong { display: block; font-size: 15px; }
+.member span { font-size: 13px; color: var(--muted); }
+
+/* 50/30/20 split rows: the black tick marks the rule's target */
+.split-row { margin-bottom: 14px; }
+.split-track { position: relative; }
+.split-target {
+  position: absolute; top: -3px; bottom: -3px; width: 2px;
+  background: var(--ink);
+}
+.verdict {
+  background: #dcfce7; border: 1px solid #86efac; border-radius: 8px;
+  padding: 10px 12px; font-size: 14px; margin: 4px 0 0;
+}
+
 /* Money cards */
 .money-grid {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 18px;
@@ -205,6 +227,7 @@ h2 { font-size: 19px; margin: 0 0 12px; }
 @media (max-width: 760px) {
   .money-grid { grid-template-columns: repeat(2, 1fr); }
   .money-grid.three { grid-template-columns: 1fr; }
+  .household-members { grid-template-columns: 1fr 1fr; }
   .two-col { grid-template-columns: 1fr; }
   .goal-grid { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr 1fr; }
