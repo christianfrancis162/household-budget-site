@@ -13,6 +13,11 @@
 //   #/bills          Bills manager — pay, add, track what is still owed
 //   #/envelopes      Weekly envelopes — zero-based, day-to-day spending
 //   #/what-if        What-if simulator — replay the month with a change
+//   #/payday         Payday plan — every payday has a job
+//   #/members        Who spent what — the member split
+//   #/calendar       December calendar — bills on the days they fall due
+//   #/emergency      Safety net — the emergency-fund planner
+//   #/export         Take it with you — the month as CSV files and a summary
 //
 // The page sets window.__shotReady to false while a route loads and to
 // true once it has rendered, so screenshots are taken of finished pages.
@@ -38,6 +43,14 @@ import {
   bindEnvelopes,
   renderWhatIf,
   bindWhatIf,
+  renderPayday,
+  renderMembers,
+  renderCalendar,
+  bindCalendar,
+  renderEmergency,
+  bindEmergency,
+  renderExport,
+  bindExport,
 } from "./views.js";
 
 const ROUTES = {
@@ -52,6 +65,11 @@ const ROUTES = {
   "/bills": { title: "Bills", render: renderBills, bind: bindBills },
   "/envelopes": { title: "Weekly Envelopes", render: renderEnvelopes, bind: bindEnvelopes },
   "/what-if": { title: "What-If Simulator", render: renderWhatIf, bind: bindWhatIf },
+  "/payday": { title: "Payday Plan", render: renderPayday, bind: null },
+  "/members": { title: "Who Spent What", render: renderMembers, bind: null },
+  "/calendar": { title: "December Calendar", render: renderCalendar, bind: bindCalendar },
+  "/emergency": { title: "Safety Net", render: renderEmergency, bind: bindEmergency },
+  "/export": { title: "Take It With You", render: renderExport, bind: bindExport },
 };
 
 const main = document.getElementById("view");

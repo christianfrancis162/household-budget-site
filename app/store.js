@@ -124,7 +124,7 @@ export function resetAll() {
 
 // --- Mutations (every form on the site calls one of these) ---
 
-export function addTransaction({ day, desc, cat, kind, amount }) {
+export function addTransaction({ day, desc, cat, kind, amount, who }) {
   const tx = {
     id: state.nextId++,
     day: Number(day) || TODAY_DAY,
@@ -132,6 +132,10 @@ export function addTransaction({ day, desc, cat, kind, amount }) {
     cat,
     kind,
     amount: kind === "income" ? Math.abs(amount) : -Math.abs(amount),
+    // Who spent (or earned) it — Chidi, Adaeze, Kids, or Shared for the
+    // household as a whole. New entries default to Shared; the
+    // Transactions page lets the household pick.
+    who: who === "Chidi" || who === "Adaeze" || who === "Kids" ? who : "Shared",
   };
   state.transactions.push(tx);
   state.transactions.sort((a, b) => a.day - b.day || a.id - b.id);

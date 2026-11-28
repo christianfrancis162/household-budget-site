@@ -293,3 +293,43 @@ h2 { font-size: 19px; margin: 0 0 12px; }
   .bill-row { display: flex; flex-wrap: wrap; gap: 6px 10px; }
   .bill-row .tx-desc { flex: 1 1 55%; }
 }
+
+/* HomeLedger v5 — payday, members, calendar, safety net, export */
+.tool-links { list-style: none; margin: 0; padding: 0; font-size: 15px; }
+.tool-links li { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.tool-links li:last-child { border-bottom: none; }
+.tool-links a { font-weight: 700; }
+
+.member-card h2 { margin-bottom: 2px; }
+
+/* December calendar: 7 columns, Monday first */
+.cal-grid {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-bottom: 6px;
+}
+.cal-head span {
+  font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;
+  color: var(--muted); text-align: center; padding: 4px 0;
+}
+.cal-cell {
+  background: #fffdf8; border: 1px solid var(--line); border-radius: 8px;
+  min-height: 92px; padding: 6px 7px; font-size: 13px;
+}
+.cal-cell.blank { background: transparent; border-color: transparent; }
+.cal-day { display: block; font-weight: 800; font-size: 14px; margin-bottom: 4px; }
+.cal-bill { margin: 4px 0; padding-top: 4px; border-top: 1px solid var(--line); }
+.cal-bill span { display: block; }
+.cal-bill.paid { opacity: 0.6; }
+.cal-bill-status { color: var(--muted); font-size: 12px; }
+.cal-bill .btn-small { margin-top: 4px; }
+.cal-payday {
+  background: #dcfce7; border: 1px solid #86efac; border-radius: 6px;
+  padding: 3px 6px; margin: 4px 0; font-weight: 700; color: var(--green-dark);
+}
+
+@media (max-width: 760px) {
+  .cal-grid { gap: 3px; }
+  .cal-cell { min-height: 74px; padding: 4px 5px; font-size: 11px; }
+  .cal-day { font-size: 12px; }
+  .cal-bill-status { display: none; }
+  .cal-bill .btn-small { padding: 2px 6px; font-size: 11px; }
+}

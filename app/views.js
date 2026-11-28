@@ -2,7 +2,7 @@
 // route; each bind function wires that page's controls after it is drawn.
 // All figures come from store.js, so every page agrees with every other.
 
-import { HOUSEHOLD, CATEGORIES, GOALS, UPCOMING_BILLS, TODAY_DAY } from "./data.js";
+import { HOUSEHOLD, INCOME_SOURCES, CATEGORIES, GOALS, UPCOMING_BILLS, TODAY_DAY } from "./data.js";
 import {
   state,
   incomeTotal,
@@ -35,6 +35,38 @@ import {
 } from "./store.js";
 import { naira, signedNaira, shortNaira, pct, dayLabel } from "./format.js";
 import { barsChart, donutChart, CATEGORY_COLORS } from "./charts.js";
+// The five v5 pages' logic comes first in the import order, ahead of
+// the older planners: the dossier lists source files in import-walk
+// order and its text is capped, so the newest pages' code must come
+// before the cut, not after it.
+import {
+  paydayPlan,
+  jobsByCategory,
+  paydayVerdicts,
+} from "./payday.js";
+import {
+  membersSplit,
+  memberVerdicts,
+} from "./members.js";
+import {
+  buildCalendar,
+  DECEMBER_PAYDAYS,
+  weekSummaries,
+  calendarVerdicts,
+  calendarBillLabel,
+} from "./calendar.js";
+import {
+  emergencyPots,
+  emergencyPlan,
+  emergencyVerdicts,
+} from "./emergency.js";
+import {
+  transactionsCsv,
+  budgetCsv,
+  billsCsv,
+  monthSummary,
+  downloadText,
+} from "./export.js";
 import {
   PLANNER_TODAY,
   formatDeadline,
@@ -246,7 +278,19 @@ export function renderDashboard() {
       <div class="bar-track slim"><div class="bar-fill" style="width:${pct(g.saved, g.target)}%;background:#166534"></div></div>`).join("")}
       <p class="panel-link"><a href="#/goals">All savings goals →</a></p>
     </section>
-  </div>`;
+  </div>
+
+  <section class="panel" aria-label="More tools">
+    <h2>More tools for the household</h2>
+    <p class="note">Every payday has a job, every person has a share, every bill has a day — and the whole month downloads as your own records.</p>
+    <ul class="tool-links">
+      <li><a href="#/payday">Payday plan</a> — the three paydays, every naira assigned to a job</li>
+      <li><a href="#/members">Who spent what</a> — Chidi, Adaeze, the kids, and the household together</li>
+      <li><a href="#/calendar">December calendar</a> — bills on the days they fall due</li>
+      <li><a href="#/emergency">Safety net</a> — how long the emergency pots really last</li>
+      <li><a href="#/export">Take it with you</a> — the month as CSV files and a plain-text summary</li>
+    </ul>
+  </section>`;
 }
 
 // ---------------- Transactions ----------------
@@ -286,6 +330,14 @@ export function renderTransactions() {
       <label>Amount (₦)
         <input type="number" name="amount" min="1" step="50" placeholder="25000" required>
       </label>
+      <label>Who was it?
+        <select name="who">
+          <option value="Shared">Shared — the household</option>
+          <option value="Chidi">Chidi</option>
+          <option value="Adaeze">Adaeze</option>
+          <option value="Kids">Zara &amp; Tobi</option>
+        </select>
+      </label>
       <div class="form-actions"><button type="submit" class="btn">Add it</button></div>
     </form>
     <p class="note" id="add-tx-msg" role="status">${msg}</p>
@@ -315,10 +367,10 @@ export function renderTransactions() {
       </label>
     </div>
     <table class="tx-table">
-      <thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="num">Amount</th><th></th></tr></thead>
+      <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Who</th><th class="num">Amount</th><th></th></tr></thead>
       <tbody id="tx-rows">
         ${sorted.map((t) => `<tr data-cat="${t.cat}" data-kind="${t.kind}" data-desc="${t.desc.toLowerCase()}">
-          <td>${dayLabel(t.day)}</td><td>${t.desc}</td><td>${catLabel(t.cat)}</td>
+          <td>${dayLabel(t.day)}</td><td>${t.desc}</td><td>${catLabel(t.cat)}</td><td>${t.who || "Shared"}</td>
           <td class="num ${t.amount > 0 ? "in" : "out"}">${signedNaira(t.amount)}</td>
           <td><button class="btn-small" data-del="${t.id}" aria-label="Delete ${t.desc}">Delete</button></td>
         </tr>`).join("")}
@@ -339,6 +391,7 @@ export function bindTransactions(rerender) {
       cat: fd.get("cat"),
       kind: fd.get("kind"),
       amount: Number(fd.get("amount")),
+      who: fd.get("who"),
     });
     txFlash =
       "Added: " + tx.desc + " — " + signedNaira(tx.amount) + ". Totals updated everywhere.";
@@ -1308,4 +1361,366 @@ export function bindWhatIf(rerender) {
     whatIfPresetName = "";
     rerender();
   });
+}
+
+// ---------------- Payday plan ----------------
+
+// The payday page: the three November paydays, each with its jobs, so
+// the household can see that every naira was assigned before it was
+// spent — and where the plan and the real spending differ.
+export function renderPayday() {
+  const plan = paydayPlan();
+  const jobs = jobsByCategory();
+  const spent = spentByCategory();
+  const verdicts = paydayVerdicts(plan, INCOME_SOURCES, budgetTotal() + state.savingsTarget);
+  return `
+  <h1>Payday plan — every payday has a job</h1>
+  <p class="lede">Three paydays this month, <strong>${naira(plan.income)}</strong> between them. Each payday's
+  money is assigned to a job before it is spent — rent, food, savings, Christmas — so nothing is left drifting.
+  The jobs add up to <strong>${naira(plan.assigned)}</strong>${plan.fullyAssigned ? ", exactly the month's pay" : ", leaving " + naira(plan.leftover) + " unassigned"}.</p>
+
+  <section class="money-grid three" aria-label="Payday totals">
+    ${moneyCard("Paydays", naira(plan.income), "3 paydays: Nov 1, 4 and 19", "in")}
+    ${moneyCard("Assigned to jobs", naira(plan.assigned), plan.fullyAssigned ? "every naira has a job" : naira(plan.leftover) + " unassigned", "save")}
+    ${moneyCard("Left to spend", naira(remaining()), daysLeft() + " days left in the month", "left")}
+  </section>
+
+  ${plan.paydays.map((p) => `
+  <section class="panel" aria-label="Payday Nov ${p.day}">
+    <div class="planner-head"><h2>Nov ${p.day} — ${p.who}</h2>
+    <span class="status-badge ${p.fullyAssigned ? "status-on-track" : "status-tight"}">${p.fullyAssigned ? "Fully assigned" : naira(p.leftover) + " unassigned"}</span></div>
+    <p class="note">${p.what} — ${naira(p.amount)}</p>
+    <table class="tx-table">
+      <thead><tr><th>Job</th><th class="num">Amount</th></tr></thead>
+      <tbody>
+        ${p.jobs.map((j) => `<tr><td>${j.job}</td><td class="num">${naira(j.amount)}</td></tr>`).join("")}
+        <tr class="total-row"><td>Assigned</td><td class="num">${naira(p.assigned)}</td></tr>
+      </tbody>
+    </table>
+  </section>`).join("")}
+
+  <section class="panel" aria-label="Plan against the budget">
+    <h2>Plan against the budget</h2>
+    <p class="note">What the jobs add up to per category, next to what the household actually spent there — the plan and the spending, side by side.</p>
+    <table class="tx-table">
+      <thead><tr><th>Category</th><th class="num">Planned (jobs)</th><th class="num">Actually spent</th></tr></thead>
+      <tbody>
+        ${CATEGORIES.map((c) => `<tr><td>${c.label}</td><td class="num">${naira(jobs[c.id] || 0)}</td><td class="num">${naira(spent[c.id])}</td></tr>`).join("")}
+        <tr class="total-row"><td>Savings + set aside</td><td class="num">${naira((jobs.savings || 0) + (jobs["set-aside"] || 0))}</td><td class="num">${naira(savedTotal())}</td></tr>
+      </tbody>
+    </table>
+    <p class="note">Transport was planned at ${naira(jobs.transport || 0)} and the household spent ${naira(spent.transport)} of it —
+    the plan held. Food's jobs add up to ${naira(jobs.food || 0)} against a ${naira(state.budgets.food)} budget: the plan spends less than the budget allows.</p>
+  </section>
+
+  <section class="panel" aria-label="Verdicts">
+    <h2>What the plan says</h2>
+    <ul class="legend-list">
+      ${verdicts.map((v) => `<li>${v}</li>`).join("")}
+    </ul>
+  </section>`;
+}
+
+// ---------------- Who spent what ----------------
+
+// The members page: who earned it, who spent it, and on what. Shared
+// spending — rent, food, bills — belongs to the household as a whole,
+// and the page says so instead of pretending one person paid it.
+export function renderMembers() {
+  const split = membersSplit(state.transactions);
+  const verdicts = memberVerdicts(split);
+  return `
+  <h1>Who spent what</h1>
+  <p class="lede">Four ways to look at the same month: Chidi, Adaeze, Zara &amp; Tobi, and Shared — the spending that
+  belongs to the household as a whole. The members' spending adds up to the month's spending exactly:
+  <strong>${naira(split.totalSpent)}</strong>.</p>
+
+  <section class="money-grid" aria-label="Member totals">
+    ${moneyCard("Earned", naira(split.totalIncome), "Chidi " + naira(split.members.find((m) => m.who === "Chidi").income) + " · Adaeze " + naira(split.members.find((m) => m.who === "Adaeze").income), "in")}
+    ${moneyCard("Spent", naira(split.totalSpent), "across all four", "out")}
+    ${moneyCard("Saved", naira(split.totalSaved), "the household saves together", "save")}
+    ${moneyCard("Shared spending", naira(split.members.find((m) => m.who === "Shared").spent), split.members.find((m) => m.who === "Shared").sharePct + "% of all spending", "")}
+  </section>
+
+  <div class="goal-grid">
+    ${split.members.map((m) => `
+    <section class="panel member-card">
+      <div class="planner-head"><h2>${m.label}</h2><span class="status-badge">${m.sharePct}% of spending</span></div>
+      <div class="goal-figures"><strong>${naira(m.spent)}</strong> spent · <strong>${naira(m.income)}</strong> earned</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${m.sharePct}%;background:#166534"></div></div>
+      <p class="bar-foot"><span>${m.sharePct}% of the month's spending</span><span>${m.income ? m.incomeSharePct + "% of the income" : "no income of their own"}</span></p>
+      ${m.topCategories.length ? `<p class="note">Biggest spending: ${m.topCategories.map((t) => t.label + " " + naira(t.amount)).join(" · ")}.</p>` : `<p class="note">No personal spending this month — everything they spent sits under Shared.</p>`}
+      ${m.saved ? `<p class="note">Saved ${naira(m.saved)} this month.</p>` : ""}
+    </section>`).join("")}
+  </div>
+
+  <section class="panel" aria-label="Verdicts">
+    <h2>What the split says</h2>
+    <ul class="legend-list">
+      ${verdicts.map((v) => `<li>${v}</li>`).join("")}
+    </ul>
+    <p class="panel-link"><a href="#/transactions">See every transaction with who spent it →</a></p>
+  </section>`;
+}
+
+// ---------------- December calendar ----------------
+
+// The calendar page: December's bills on the days they fall due, next
+// to the two December paydays. Paying a bill here works exactly as on
+// the Bills page — the bill stays on the list, marked paid.
+let calendarFlash = "";
+
+export function renderCalendar() {
+  const weeks = buildCalendar(2026, 11, state.bills, DECEMBER_PAYDAYS);
+  const summaries = weekSummaries(weeks);
+  const verdicts = calendarVerdicts(weeks, state.bills);
+  const decTotal = state.bills.filter((b) => b.month === "Dec").reduce((s, b) => s + b.amount, 0);
+  const flash = calendarFlash;
+  calendarFlash = "";
+  const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  return `
+  <h1>December calendar</h1>
+  <p class="lede">December 2026 — every bill on the day it falls due, and the two paydays that cover them.
+  December's bills add up to <strong>${naira(decTotal)}</strong>; the paydays land in week 1, so the rent is covered the day it is due.</p>
+  ${flash ? `<p class="calc-result" role="status">${flash}</p>` : ""}
+
+  <section class="panel" aria-label="December 2026 calendar">
+    <div class="cal-grid cal-head" aria-hidden="true">
+      ${dayNames.map((d) => `<span>${d}</span>`).join("")}
+    </div>
+    ${weeks.map((week, wi) => `<div class="cal-grid">
+      ${week.map((cell) => {
+        if (!cell.inMonth) return `<div class="cal-cell blank"></div>`;
+        const bills = cell.bills.map((b) => `
+          <div class="cal-bill ${b.paid ? "paid" : ""}">
+            <span>${b.desc} — ${naira(b.amount)}</span>
+            <span class="cal-bill-status">${calendarBillLabel(b)}</span>
+            ${b.paid ? "" : `<button class="btn-small" type="button" data-pay-cal-bill="${b.id}">Mark paid</button>`}
+          </div>`).join("");
+        const paydays = cell.paydays.map((p) => `
+          <div class="cal-payday">Payday — ${p.who.split(" ")[0]} ${naira(p.amount)}</div>`).join("");
+        return `<div class="cal-cell">
+          <span class="cal-day">${cell.day}</span>
+          ${paydays}${bills}
+        </div>`;
+      }).join("")}
+    </div>`).join("")}
+    <p class="note">Week totals — ${summaries.map((s) => "week " + s.week + ": " + naira(s.total) + (s.paydayTotal ? " due, " + naira(s.paydayTotal) + " paid in" : " due")).join(" · ")}.</p>
+  </section>
+
+  <section class="panel" aria-label="Verdicts">
+    <h2>What December looks like</h2>
+    <ul class="legend-list">
+      ${verdicts.map((v) => `<li>${v}</li>`).join("")}
+    </ul>
+    <p class="panel-link"><a href="#/bills">Manage the bills — pay, add, remove →</a></p>
+  </section>`;
+}
+
+export function bindCalendar(rerender) {
+  document.querySelectorAll("[data-pay-cal-bill]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const bill = state.bills.find((b) => b.id === btn.dataset.payCalBill);
+      if (!bill) return;
+      if (!window.confirm("Mark \"" + bill.desc + "\" (" + naira(bill.amount) + ", due Dec " + bill.dueDay + ") as paid?")) return;
+      markBillPaid(bill.id);
+      calendarFlash = "Paid: " + bill.desc + " — " + naira(bill.amount) + ". Still to pay in December: " + naira(billsSummary(state.bills).dueTotal) + ".";
+      rerender();
+    }),
+  );
+}
+
+// ---------------- Safety net ----------------
+
+// The emergency-fund planner page: the two pots counted together,
+// measured against what the household really spends on the must-pays,
+// with a target the household picks and the monthly amount it takes
+// to get there. A top-up form adds money to the main pot, like the
+// Goals page does.
+let emergencyTargetMonths = 6;
+let emergencyMonthsToSave = 12;
+let emergencyFlash = "";
+
+export function renderEmergency() {
+  const pots = emergencyPots(state.goals, state.savingsGoals);
+  const plan = emergencyPlan(spentByCategory(), emergencyTargetMonths, emergencyMonthsToSave, pots);
+  const verdicts = emergencyVerdicts(plan, pots, state.savingsTarget);
+  const flash = emergencyFlash;
+  emergencyFlash = "";
+  return `
+  <h1>Safety net — the emergency fund</h1>
+  <p class="lede">The household keeps two emergency pots. Together they hold <strong>${naira(pots.totalSaved)}</strong>
+  against <strong>${naira(plan.essentials)}</strong> a month of must-pays — rent, food, transport, utilities, at what
+  November actually cost. That is <strong>${plan.monthsCoveredText}</strong> of cover.</p>
+  ${flash ? `<p class="calc-result" role="status">${flash}</p>` : ""}
+
+  <section class="money-grid three" aria-label="Safety net totals">
+    ${moneyCard("Must-pays / month", naira(plan.essentials), "housing, food, transport, utilities — actual November spend", "out")}
+    ${moneyCard("Saved in the pots", naira(pots.totalSaved), "main pot " + naira(pots.main ? pots.main.saved : 0) + " · second pot " + naira(pots.second ? pots.second.saved : 0), "save")}
+    ${moneyCard("Cover now", plan.monthsCoveredText, "at " + naira(plan.essentials) + " a month", plan.monthsCovered >= 3 ? "in" : "out")}
+  </section>
+
+  <section class="panel" aria-label="The two pots">
+    <h2>The two pots</h2>
+    ${[pots.main, pots.second].map((p) => p ? `
+    <div class="bar-row">
+      <div class="bar-head"><span>${p.name} — ${p.target ? "target " + naira(p.target) : ""}</span><span>${naira(p.saved)} saved</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.min(100, pct(p.saved, p.target))}%;background:#166534"></div></div>
+      <div class="bar-foot"><span>${pct(p.saved, p.target)}% of its target</span><span>${p.target ? "covers about " + (Math.round((p.target / plan.essentials) * 10) / 10) + " months of must-pays" : ""}</span></div>
+    </div>` : "").join("")}
+    <p class="note">The main pot lives on the <a href="#/goals">Goals page</a>; the second pot lives in the
+    <a href="#/savings-goals">savings-goals planner</a>, due June 2027. The planner counts both together, because a safety net is what the household has, not what one card says.</p>
+  </section>
+
+  <section class="panel" aria-label="Plan the target">
+    <h2>Plan the target</h2>
+    <div class="form-grid">
+      <label>Cover for how many months?
+        <select id="emergency-target">
+          <option value="3"${emergencyTargetMonths === 3 ? " selected" : ""}>3 months</option>
+          <option value="6"${emergencyTargetMonths === 6 ? " selected" : ""}>6 months</option>
+          <option value="12"${emergencyTargetMonths === 12 ? " selected" : ""}>12 months</option>
+        </select>
+      </label>
+      <label>Reach it in how many months?
+        <input type="number" id="emergency-months" min="1" max="36" value="${emergencyMonthsToSave}">
+      </label>
+    </div>
+    <p class="calc-result">${plan.covered
+      ? "The " + plan.targetMonths + "-month target (" + naira(plan.target) + ") is already met — the pots hold " + naira(plan.saved) + "."
+      : "To reach " + plan.targetMonths + " months (" + naira(plan.target) + ") in " + plan.monthsToSave + " months, put in " + naira(plan.monthlyNeeded) + " every month. Still to find: " + naira(plan.gap) + "."}</p>
+    <ul class="legend-list">
+      ${verdicts.map((v) => `<li>${v}</li>`).join("")}
+    </ul>
+  </section>
+
+  <section class="panel" aria-label="Top up the main pot">
+    <h2>Top up the main pot</h2>
+    <p class="note">Add money to the emergency fund on the Goals page — it moves the cover on this page at once, because both pages read the same pot.</p>
+    <form class="goal-form" id="emergency-topup">
+      <label>Add money (₦)
+        <input type="number" name="amount" min="100" step="500" placeholder="10000" required>
+      </label>
+      <button type="submit" class="btn">Add to the emergency fund</button>
+    </form>
+  </section>`;
+}
+
+export function bindEmergency(rerender) {
+  document.getElementById("emergency-target").addEventListener("change", (e) => {
+    emergencyTargetMonths = Number(e.target.value) || 6;
+    rerender();
+  });
+  document.getElementById("emergency-months").addEventListener("input", (e) => {
+    emergencyMonthsToSave = Math.max(1, Math.round(Number(e.target.value) || 1));
+    rerender();
+  });
+  document.getElementById("emergency-topup").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const amount = Number(new FormData(e.target).get("amount"));
+    const goal = state.goals.find((g) => g.id === "emergency");
+    contributeToGoal("emergency", amount);
+    emergencyFlash =
+      "Added " + naira(amount) + " to the emergency fund — now " + naira(goal.saved) +
+      " of " + naira(goal.target) + " (" + pct(goal.saved, goal.target) + "% there).";
+    rerender();
+  });
+}
+
+// ---------------- Take it with you ----------------
+
+// The export page: the household's records as files it owns — the
+// transactions, the budget, the bills, and the whole month as a
+// plain-text summary. Every file is built from the live figures, so
+// an edit made anywhere on the site is in the download.
+let exportFlash = "";
+
+export function renderExport() {
+  const flash = exportFlash;
+  exportFlash = "";
+  const txCount = state.transactions.length;
+  const billCount = state.bills.length;
+  return `
+  <h1>Take it with you</h1>
+  <p class="lede">The household's records belong to the household. Download them as files you own — open the CSVs in a
+  spreadsheet, keep the summary with your papers. Every file is built from the month as it stands right now, including
+  any change you made on this site.</p>
+  ${flash ? `<p class="calc-result" role="status">${flash}</p>` : ""}
+
+  <div class="goal-grid">
+    <section class="panel">
+      <h2>Transactions — CSV</h2>
+      <p class="note">${txCount} transactions, newest last: day, description, category, who spent it, type, amount in naira.
+      Money in is positive, money out is negative.</p>
+      <p><button class="btn" type="button" data-export="transactions">Download transactions.csv</button></p>
+    </section>
+    <section class="panel">
+      <h2>Budget — CSV</h2>
+      <p class="note">${CATEGORIES.length} categories: the monthly budget, what was spent, what is left, and the percentage used.</p>
+      <p><button class="btn" type="button" data-export="budget">Download budget.csv</button></p>
+    </section>
+    <section class="panel">
+      <h2>Bills — CSV</h2>
+      <p class="note">${billCount} bills, soonest first: due date, bill, category, amount, whether it repeats, and whether it is paid.</p>
+      <p><button class="btn" type="button" data-export="bills">Download bills.csv</button></p>
+    </section>
+    <section class="panel">
+      <h2>Month summary — text</h2>
+      <p class="note">November 2026 in plain text: the headline figures, the 50/30/20 split, every category against its
+      budget, the goals, the debts and the bills still to pay.</p>
+      <p><button class="btn" type="button" data-export="summary">Download november-2026-summary.txt</button></p>
+    </section>
+  </div>
+  <p class="note">Downloads are made in your browser from the figures on this site — no network, no account, nothing leaves the household.</p>`;
+}
+
+export function bindExport(rerender) {
+  document.querySelectorAll("[data-export]").forEach((btn) =>
+    btn.addEventListener("click", () => {
+      const kind = btn.dataset.export;
+      let ok = false;
+      if (kind === "transactions") {
+        ok = downloadText("homeledger-transactions-november-2026.csv", transactionsCsv(state.transactions), "text/csv;charset=utf-8");
+        if (ok) exportFlash = "Downloaded transactions.csv — " + state.transactions.length + " transactions.";
+      } else if (kind === "budget") {
+        ok = downloadText("homeledger-budget-november-2026.csv", budgetCsv(CATEGORIES, state.budgets, spentByCategory()), "text/csv;charset=utf-8");
+        if (ok) exportFlash = "Downloaded budget.csv — " + CATEGORIES.length + " categories.";
+      } else if (kind === "bills") {
+        ok = downloadText("homeledger-bills-december-2026.csv", billsCsv(state.bills), "text/csv;charset=utf-8");
+        if (ok) exportFlash = "Downloaded bills.csv — " + state.bills.length + " bills.";
+      } else if (kind === "summary") {
+        const split = split502030();
+        const figures = {
+          income: naira(incomeTotal()),
+          spent: naira(spentTotal()),
+          saved: naira(savedTotal()),
+          savingsRate: savingsRate(),
+          left: naira(remaining()),
+          daysLeft: daysLeft(),
+          split: { needsPct: split.needsPct, wantsPct: split.wantsPct, savePct: split.savePct },
+          categories: CATEGORIES.map((c) => ({
+            label: c.label,
+            budget: naira(state.budgets[c.id]),
+            spent: naira(spentByCategory()[c.id]),
+            left: naira(state.budgets[c.id] - spentByCategory()[c.id]),
+            pct: pct(spentByCategory()[c.id], state.budgets[c.id]),
+          })),
+          goals: state.goals.map((g) => ({
+            name: g.name,
+            saved: naira(g.saved),
+            target: naira(g.target),
+            pct: pct(g.saved, g.target),
+          })),
+          debtTotal: naira(totalBalance(state.debts)),
+          debtCount: state.debts.length,
+          billsDue: naira(billsSummary(state.bills).dueTotal),
+          billsUnpaid: billsSummary(state.bills).unpaidCount,
+        };
+        ok = downloadText("homeledger-november-2026-summary.txt", monthSummary(figures));
+        if (ok) exportFlash = "Downloaded the November 2026 summary.";
+      }
+      if (!ok) exportFlash = "The download did not start — this browser blocked it. Try again, or copy the figures from the page.";
+      rerender();
+    }),
+  );
 }
